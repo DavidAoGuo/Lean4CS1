@@ -31,10 +31,10 @@ This book is intended to satisfy this need. Dependently
 types languages, such as Lean 4, are the languages today
 in which it's possible to program in this new manner. This
 book teaches integral specification, coding, and formal but
-fully automated verification in Lean.
-
-The book is itself generated from literate code (see Knuth)
-written in Lean. The code is distributed from a GitHub repository.
+fully automated verification in Lean. This book is derived
+generated from literate code (see Knuth) in Lean, enabling
+|students to read a well formatted book simultaneously with
+interacting with the actual Lean code and programming toosl.
 
 ## Navigating the Book
 
