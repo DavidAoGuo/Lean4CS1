@@ -9,16 +9,17 @@ operational dynamics, inflected with machine-verified proofs
 blended seamlessly throughout, attesting to the consistency
 of every single detail of the entire construct.
 
-The magnitude of this impending paradigm shift in programming
-is of a different nature than in the past. Binary, assembly,
-imperative programming, functional programming, structured
-programming, object-oriented programming, parallel programming,
-functional programming, concurrent programming, SIMD programming:
-These are all languages in which one can express only half of
-the world at hand--the computational half. What they all lack
-are facilities for mathematical abtsract or deductive reasoning,
-which are basically all of it for software specification and
-verification.  
+The magnitude of this impending *paradigm shift* in programming
+is going to be of a very different nature and magnitude than in
+the past. Binary, assembly, imperative programming, functional,
+structured, object-oriented, parallel, functional, concurrent
+languages are *all* languages for expressing computations. What
+the paradigm shift does is to move abstract formal languages
+into the very heart of everyday programming. This is what our
+students now need to begin to learn about from the first class
+in computer science.
+
+## The Basic Claim
 
 The main premise of this course is that future programmers
 will have to understand not only how to translate informal
@@ -26,16 +27,17 @@ ideas but how to weave abstract mathematical specifications
 and proofs with code single theoretically clean programming
 and reasoning language.
 
-This book is intended to satisfy this need. Dependently 
+This book is intended to satisfy this need. Dependently
 types languages, such as Lean 4, are the languages today
-in which it's possible to program in this new manner. This 
+in which it's possible to program in this new manner. This
 book teaches integral specification, coding, and formal but
-fully automated verification in Lean. 
+fully automated verification in Lean.
 
 The book is itself generated from literate code (see Knuth)
 written in Lean. The code is distributed from a GitHub repository.
 
 ## Navigating the Book
+
 At the top of the page, from the left, one finds a sequence of icons.
 The hamburger (three-line-stack) menu shows/hides the table of contents;
 the paintbrush icon is for changing the presentation color scheme; the
@@ -44,6 +46,7 @@ for printing it (or saving it as a PDF for offline reading); and the last,
 GitHub, icon takes you to the GitHub repo where this book is stored.
 
 ## Setting up Your Computer
+
 Everything in this course runs inside a Docker **development container,**
 a preconfigured Linux environment defined by files in this repository, that
 Docker builds on your laptop. You do not install Lean, Mathlib, or the book
@@ -56,8 +59,8 @@ it. To be able to do that, follow the directions here. In a nutshell,
 you will fork our repo, clone your fork of our repo, open your clone
 in VSCode; activate the Dev Containers VSCode plug-in; start up the
 "container"; then arrange your editor layout. Voila! Up and running.
-
-The benefit is that every student has an identical environment with fairly low effort.
+The benefit is that every student has an identical environment, with
+low effort.
 
 Work through the steps in order. Step 4 takes the longest; start it before
 you need it.
