@@ -10,14 +10,14 @@ blended seamlessly throughout, attesting to the consistency
 of every single detail of the entire construct.
 
 The magnitude of this impending paradigm shift in programming
-is of a different nature than in the past. Binary, assembly, 
-imperative programming, functional programming, structured 
-programming, object-oriented programming, parallel programming, 
-concurrent programming, SIMD programming. The are all languages
-in which one can express only half of the world at hand in any
-serious setting. They are computation languages. What they lack
+is of a different nature than in the past. Binary, assembly,
+imperative programming, functional programming, structured
+programming, object-oriented programming, parallel programming,
+functional programming, concurrent programming, SIMD programming:
+These are all languages in which one can express only half of
+the world at hand--the computational half. What they all lack
 are facilities for mathematical abtsract or deductive reasoning,
-which are basically all of it for software specification and 
+which are basically all of it for software specification and
 verification.  
 
 
