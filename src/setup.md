@@ -22,44 +22,12 @@ verification.
 
 
 
-now before us is far greater
-those those 
 
-computatational software
-development  in traditional programming,  
-
-
-
-
-
-
-
- system requirements,
-necessarily expressed in the terms of application domain;
-specifications concerning particular machinery to be built;
-and ordinary computation, with continual checking of  
-to  
-implementations in the low-level formalisms
-of, say, imperative programming, but also to express the
-abstract mathematics of the application domain itself,
-the definitions of terms for which are prerequite to the
-expression of some particular system intended to operate
-in, with, and on that domain. 
-
-with the 
-the
-domain 
-the been trained to
-handle the formal mathematics of the domain of discourse  
-
-be will be trained to deal with the abstract
-mathematics 
-
-A premise of this course is that future programmers will
-have to understand how to weave abstract mathematical
-formal specifications and
-corresponding implementations within single   
-
+The main premise of this course is that future programmers 
+will have to understand not only how to translate informal 
+ideas but how to weave abstract mathematical specifications 
+and proofs with code single theoretically clean programming
+and reasoning language.
 
 The goal of this course on *programming* is to equip each
 student with cognitive skills and performance capabilities
