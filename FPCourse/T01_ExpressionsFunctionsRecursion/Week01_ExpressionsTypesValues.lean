@@ -229,6 +229,7 @@ def safeDiv (a : Nat) (b : Nat) (_h : b ≠ 0) : Nat := a / b
 
 #eval safeDiv 20 4 (by decide)   -- predict first
 
+
 -- Attempting safeDiv 10 0 would require a proof of 0 ≠ 0,
 -- which is false.  `decide` would refuse, and the file would
 -- not compile.
@@ -303,6 +304,7 @@ check only the ones that are decidable:
 --     (Hint: what would DecidableEq Float have to certify about NaN?  §1.2, revisited Week 7.)
 ```
 
+#eval decide Float.NaN
 ---
 
 **[E1.4]** · *counterexample finding* · tier 1 · **core** · target `subCancelCex`
