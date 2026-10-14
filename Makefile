@@ -12,7 +12,11 @@ SRC_FILES := $(shell find $(SRC_DIRS) -type f -name '*.lean')
 # Derive corresponding output files with .md extension under src/
 BUILD_FILES := $(patsubst %.lean,src/%.md,$(SRC_FILES))
 
-# Default target: convert all .lean files to .md, then build the book
+# Default target: convert all .lean files to .md, then build the book.
+# Does NOT prune orphaned .md files -- that is a separate, manual step
+# (`make prune`), since it deletes tracked files. The Pages deploy workflow
+# (.github/workflows/*.yml) already re-derives and drops orphans on its own
+# for the live site, so a stale file left here does not get published.
 all: $(BUILD_FILES)
 	mdbook build
 	@$(MAKE) --no-print-directory canvas
@@ -25,8 +29,21 @@ $(BUILD_FILES): src/%.md: %.lean scripts/convert.py
 	echo "Converting $< into $@"
 	python3 scripts/convert.py $< $@
 
-# Convert only (no mdbook build)
+# Convert only (no mdbook build, no prune)
 convert: $(BUILD_FILES)
+
+# Delete generated .md files whose .lean source is gone. Manual only -- run
+# this yourself when you want orphans gone; `all`/`convert` leave them in
+# place. Renaming a source leaves its old output behind, and since the
+# generated files are tracked, the orphan keeps getting built locally:
+# E00_familiarity.lean became E00_Types.lean, but src/.../E00_familiarity.md
+# survived as a title-only page and SUMMARY.md went on linking it, so the
+# Familiarization entry rendered blank in a local build.
+prune:
+	@find $(GENERATED_MD) -type f -name '*.md' 2>/dev/null | while read -r md; do \
+	  lean="$${md#src/}"; lean="$${lean%.md}.lean"; \
+	  if [ ! -f "$$lean" ]; then echo "Pruning orphaned $$md"; rm -f "$$md"; fi; \
+	done
 
 # Build the book (assumes convert has been run)
 build:
@@ -77,4 +94,4 @@ clean-md:
 clean:
 	rm -rf $(GENERATED_MD) book/
 
-.PHONY: all convert build a11y og slack slack-serve canvas serve clean-md clean
+.PHONY: all convert prune build a11y og slack slack-serve canvas serve clean-md clean

@@ -4,7 +4,7 @@ There is good reason today to believe that every serious
 software engineer of the future will be expected to know
 how to use and produce software artifacts that, in a single
 language, intelligibly express everything from the abstract
-mathematics of the application domain, to low-level hardware
+mathematics of the application domain to low-level hardware
 operational dynamics, inflected with machine-verified proofs
 blended seamlessly throughout, attesting to the consistency
 of every single detail of the entire construct.
@@ -214,7 +214,7 @@ inside Linux, whatever your laptop actually runs.
 Two steps remain, both run in the VS Code terminal *inside* the container.
 
 **Open any Lean file first** — for example
-`FPCourse/T01_ExpressionsFunctionsRecursion/Week00_AlgebraicTypes.lean`. The Lean 4 extension activates,
+`FPCourse/T01_ExpressionsFunctionsRecursion/W00_AlgebraicTypes.lean`. The Lean 4 extension activates,
 notices the `lean-toolchain` file, and installs the exact compiler version
 this course uses. A progress notice appears in the status bar. Wait for it to
 finish, then confirm:
@@ -318,11 +318,11 @@ flipping between tabs.
 
 The book page for a chapter follows the source path exactly. Editing
 
-    FPCourse/T01_ExpressionsFunctionsRecursion/Week00_AlgebraicTypes.lean
+    FPCourse/T01_ExpressionsFunctionsRecursion/W00_AlgebraicTypes.lean
 
 corresponds to
 
-    .../FPCourse/T01_ExpressionsFunctionsRecursion/Week00_AlgebraicTypes.html
+    .../FPCourse/T01_ExpressionsFunctionsRecursion/W00_AlgebraicTypes.html
 
 in the book, so you can edit the address directly rather than clicking
 through the sidebar.
