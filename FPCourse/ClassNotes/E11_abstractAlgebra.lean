@@ -1,5 +1,5 @@
 /- @@@
-# Map, Reduce, and the Algebra That Makes Reduce Safe
+# Map, Fold, and the Algebra That Makes Fold Safe
 
 You've already written several functions that take a
 *sequence* of things and boil it down to *one* thing: sum
@@ -25,14 +25,24 @@ behind `fold` (sometimes called `reduce`), and it's today's
 main event. Along the way we'll meet `map`, its usual
 partner, and we'll discover that `fold` is a lot pickier
 about its arguments than its type signature lets on --
-which is exactly what motivates today's algebra: the
-*monoid*.
+which is exactly what motivates today's first peek into the
+realm of abstract algebra: at the *monoid*.
+
+There are endless tutorials on how to understand different
+abstract algebra objects: just check online for tutorials
+that try to answer the qusetion, *what's a monad*? Rather
+than asking what one of these things is, instead ask what
+new super-power does it give you. A monoid, in particular,
+let's you lift a *binary* operator, taking two arguments,
+to an *n-ary* operator, e.g., to add any number of values,
+not just two. The super-power that a monoids gives you is
+thus to turn binary operator correctly into an n-ary one.
 @@@ -/
 
 namespace AbstractAlgebra
 
 /- @@@
-## Folding By Hand
+## Folding Over Lists By Hand
 
 Let's write the "multiply everything" function directly,
 before abstracting anything. A `List α` is built from
@@ -98,11 +108,10 @@ This `reduce` is, in fact, Lean's own `List.foldr`
 (`fold`, *from the right*, because the recursion bottoms
 out at the right end of the list and builds back up). You
 rarely need to write it yourself -- it's in the library --
-but writing it once makes the next section hit a lot
-harder.
+but you really do want to understand exactly how it works.
 @@@ -/
 
-#eval List.foldr (· * ·) 1 [2, 3, 4]   -- 24, same thing
+#eval List.foldr (· * ·) 1 [2, 3, 4]   -- 24, (· * ·) is Nat.mul
 
 /- @@@
 ## Well-Typed, But Wrong
@@ -147,15 +156,15 @@ and `0` is the right base case for sums (`0 + a = a`,
 concatenation.
 @@@ -/
 
-def isIdentityFor (op : α → α → α) (id : α) : Prop :=
+def isIdentityFor {α : Type}  (op : α → α → α) (id : α) : Prop :=
   ∀ a, op id a = a ∧ op a id = a
 
 example : isIdentityFor (α := Nat) (· * ·) 1 :=
-  fun a => ⟨Nat.one_mul a, Nat.mul_one a⟩
+  fun a => ⟨Nat.one_mul a, Nat.mul_one a⟩   -- ignore proof for now
 
 -- 0 fails -- this is a real, provable fact about Nat, not a style complaint
 example : ¬ isIdentityFor (α := Nat) (· * ·) 0 :=
-  fun h => absurd (h 1).1 (by decide)
+  fun h => absurd (h 1).1 (by decide)       -- ignore proof for now
 
 /- @@@
 ## Associativity: Does Grouping Matter?
