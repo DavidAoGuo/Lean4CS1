@@ -11,3 +11,6 @@ lean_lib «LeanCDP» where
 
 lean_exe «leancdp-probe» where
   root := `Main
+
+lean_exe «leancdp-test» where
+  root := `Tests

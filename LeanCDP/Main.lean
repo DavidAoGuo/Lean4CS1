@@ -18,7 +18,7 @@ Usage: leancdp-probe <ipv4-host> <port> [path]
 
 import LeanCDP.Transport
 
-open LeanCDP Std.Async
+open LeanCDP.Transport Std.Async
 
 def httpGet (host : String) (port : UInt16) (path : String) : Async String := do
   let conn ← connect host port

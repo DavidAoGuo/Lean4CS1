@@ -18,7 +18,7 @@ import Std.Async.TCP
 import Std.Internal.UV.TCP
 import Std.Net.Addr
 
-namespace LeanCDP
+namespace LeanCDP.Transport
 
 open Std.Net Std.Async
 
@@ -81,4 +81,4 @@ see EOF on its next read.
 def Connection.close (c : Connection) : Async Unit :=
   c.client.shutdown
 
-end LeanCDP
+end LeanCDP.Transport
