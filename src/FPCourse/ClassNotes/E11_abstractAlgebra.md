@@ -1,3 +1,11 @@
+```lean
+-- Only needed for the library's real `Monoid`/`AddMonoid` near the end
+-- of this file (`Zero`/`One`/`Add`/`Mul`/`List.sum`/`List.prod` are
+-- core Lean and need no import at all); everything above that is
+-- deliberately import-free, built entirely from scratch.
+import Mathlib.Algebra.Group.Nat.Defs
+```
+
 # Map, Fold, and the Algebra That Makes Fold Safe
 
 You've already written several functions that take a
@@ -364,7 +372,7 @@ fails associativity or the identity laws, because producing
 a `Monoid α` value at all requires having already proved
 those laws hold.
 ```lean
-def mfold [Monoid α] : List α → α
+def mfold {α : Type} [Monoid α] : List α → α
 | List.nil      => Monoid.id
 | List.cons h t => Monoid.op h (mfold t)
 
@@ -382,6 +390,42 @@ def totalLength (strs : List String) : Nat :=
   mfold (map String.length strs)
 
 #eval totalLength ["abc", "de", "f"]   -- 6
+```
+
+## The Real Library Doesn't Have This Problem
+
+Everything just above -- `natMulMonoid` stuck as a plain `def`, the
+aside about `Multiplicative Nat` -- was working around a limitation
+of *this lesson's* `Monoid`, not a limitation of monoids as such.
+Lean's actual library gives multiplication and addition two different
+typeclass *names*, `Monoid` and `AddMonoid`, so `Nat` simply has
+*both* instances at once, each found automatically, no workaround
+needed.
+
+One wrinkle: inside this `namespace`, the bare name `Monoid` still
+means *ours* (`AbstractAlgebra.Monoid`, defined above), so reaching
+the library's real one below needs its full name, `_root_.Monoid`.
+`AddMonoid` isn't shadowed by anything we defined, so it needs no
+prefix.
+```lean
+def foldMonoid {α : Type} [_root_.Monoid α] (xs : List α) : α :=
+  xs.foldr (· * ·) 1
+
+def foldAddMonoid {α : Type} [AddMonoid α] (xs : List α) : α :=
+  xs.foldr (· + ·) 0
+
+#eval foldMonoid    (α := Nat) [2, 3, 4]   -- 24, via the library's Monoid Nat    ( *, 1 )
+#eval foldAddMonoid (α := Nat) [2, 3, 4]   -- 9,  via the library's AddMonoid Nat ( +, 0 )
+```
+
+Same list, two different folds, both resolved by typeclass search
+with zero ambiguity -- `[_root_.Monoid Nat]` and `[AddMonoid Nat]` are
+two different searches, so nothing has to arbitrate between them. And
+this exact pattern is common enough that the library already ships it
+under friendlier names than `foldMonoid`/`foldAddMonoid`:
+```lean
+#eval ([2, 3, 4] : List Nat).prod   -- 24
+#eval ([2, 3, 4] : List Nat).sum    -- 9
 ```
 
 ## EXERCISES
