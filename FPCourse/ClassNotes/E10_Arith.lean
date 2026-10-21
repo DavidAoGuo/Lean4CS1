@@ -117,6 +117,11 @@ def dec : KNat → KNat
 | KNat.zero => kzero          -- decrement zero is zero (truncation)
 | KNat.succ n' => n'          -- decrement *one more than any n'* is n'
 
+-- Convert to Nat, for readable test output
+def toNat : KNat → Nat
+| KNat.zero => 0
+| KNat.succ n' => toNat n' + 1
+
 /- @@@
 Recursive Arithmetic Functions
 @@@ -/
@@ -174,6 +179,39 @@ arguments, the first being the `hyper-depth`,
 in which case `tet a b` is `hyperop 4 a b`.
 @@@ -/
 
+-- Tetration: iterated exponentiation. a↑↑0 = 1, a↑↑(b+1) = a ^ (a↑↑b)
+def tet : KNat → KNat → KNat
+| _, KNat.zero    => kone
+| a, KNat.succ b' => exp a (tet a b')
+
+-- Hyperoperation tower, numbered as in Mathlib:
+-- level 0 = successor, 1 = add, 2 = mul, 3 = exp, 4 = tet, ...
+-- Base cases differ by level (a + 0 = a, a * 0 = 0, a ^ 0 = 1 and above);
+-- the step is uniform: level n+1 at (k+1) = level n applied to m and (level n+1 at k).
+def hyperop : Nat → KNat → KNat → KNat
+| 0,     _, k           => inc k
+| 1,     m, KNat.zero   => m
+| 2,     _, KNat.zero   => KNat.zero
+| _ + 3, _, KNat.zero   => kone
+| n + 1, m, KNat.succ k => hyperop n m (hyperop (n + 1) m k)
+
+#eval toNat (tet ktwo ktwo)           -- 4
+#eval toNat (tet ktwo kthree)         -- 16
+#eval toNat (hyperop 1 ktwo kthree)   -- 5
+#eval toNat (hyperop 2 ktwo kthree)   -- 6
+#eval toNat (hyperop 3 ktwo kthree)   -- 8
+#eval toNat (hyperop 4 ktwo ktwo)     -- 4, same as tet ktwo ktwo
+
+-- Truncated subtraction: same shape as add, stepping with dec instead of inc
+def sub : KNat → KNat → KNat
+| a, KNat.zero   => a
+| a, KNat.succ b => dec (sub a b)
+
+-- Unary negation: naturals have no negatives, so negation truncates to zero,
+-- consistent with truncated subtraction.
+def neg : KNat → KNat
+| _ => KNat.zero
+
 /- @@@
 ### Classes
 @@@ -/
@@ -209,6 +247,12 @@ mul := mul
 instance : Pow KNat KNat where
 pow := exp
 
+instance : Sub KNat where
+  sub := sub
+
+instance : Neg KNat where
+  neg := neg
+
 #eval (1 + 1 : KNat)
 #eval ktwo * kthree
 #eval ktwo ^ kthree
@@ -224,6 +268,13 @@ etc.
 #eval ktwo * (ktwo + ktwo)   -- eight!
 #eval ktwo +  ktwo * ktwo    -- six
 #eval ktwo + (ktwo * ktwo)   -- six
+
+-- Subtraction and negation get the usual precedence and associativity too
+#eval toNat (kthree - kone - kone)   -- (3 - 1) - 1 = 1      (left associative)
+#eval toNat (kthree - kone * ktwo)   -- 3 - (1 * 2) = 1      (* before -)
+#eval toNat (-ktwo + kthree)         -- (-2) + 3 = 0 + 3 = 3 (unary minus first; truncated)
+#eval toNat (ktwo ^ kthree - kone)   -- (2 ^ 3) - 1 = 7      (^ before -)
+#eval toNat (kone - kthree)          -- 0                    (truncation)
 
 /- @@@
 
@@ -283,9 +334,18 @@ open KNat
 ## Syntax
 @@@ -/
 
+inductive Variable where
+| X
+| Y
+| Z
+open Variable
+
 inductive Expr where
-| lit (n : Nat) : Expr
+| lit (n : KNat) : Expr
 | add (e1 e2 : Expr) : Expr
+| sub (e1 e2 : Expr) : Expr
+| neg (e : Expr) : Expr
+| var (v : Variable) : Expr
 open Expr
 
 
@@ -293,27 +353,53 @@ open Expr
 ## Operational Semantics
 @@@ -/
 
-def arithEval : Expr → Nat
-| Expr.lit n => n
-| Expr.add e1 e2 => Nat.add (arithEval e1) (arithEval e2)  -- (arithEval e1) + (arithEval e2)
+-- An interpretation assigns a value to each variable
+def Interp : Type := Variable → KNat
+
+def arithEval : Expr → Interp → KNat
+| Expr.lit n, _ => n
+| Expr.add e1 e2, i => KNat.add (arithEval e1 i) (arithEval e2 i)
+| Expr.sub e1 e2, i => KNat.sub (arithEval e1 i) (arithEval e2 i)
+| Expr.neg e, i => KNat.neg (arithEval e i)
+| Expr.var v, i => i v
 
 
 /- @@@
 ## Examples
 @@@ -/
--- examples expressions using our syntax
-def e1 : Expr := lit 1
-def e7 : Expr := lit 7
-def e3 : Expr := add e1 e7
-def e4 : Expr :=   -- 7 + (6 + 9)
-  add
-    (lit 7)
-    (add
-      (lit 6)
-      (lit 9)
-    )
+-- two interpretations
+def i1 : Interp := fun v => match v with
+  | X => ktwo
+  | Y => kone
+  | Z => kzero
 
-#eval arithEval e4
+def i2 : Interp := fun v => match v with
+  | X => kthree + kthree
+  | Y => kthree
+  | Z => kone
+
+-- example expressions using our syntax
+def e1 : Expr := lit kone
+def e3 : Expr := lit kthree
+def e4 : Expr :=   -- 3 + (2 + 1)
+  add
+    (lit kthree)
+    (add
+      (lit ktwo)
+      (lit kone)
+    )
+def e5 : Expr := sub (var X) (var Y)                           -- X - Y
+def e6 : Expr := neg (var Z)                                   -- -Z
+def e7 : Expr := sub (lit kthree) (sub (lit kone) (lit kone))  -- 3 - (1 - 1)
+def e8 : Expr := add (var X) (lit kthree)                      -- X + 3
+
+#eval toNat (arithEval e4 i1)   -- 6
+#eval toNat (arithEval e5 i1)   -- 1   (X = 2, Y = 1)
+#eval toNat (arithEval e5 i2)   -- 3   (X = 6, Y = 3)
+#eval toNat (arithEval e6 i1)   -- 0   (negation truncates)
+#eval toNat (arithEval e7 i1)   -- 3   (tree structure is the grouping)
+#eval toNat (arithEval e8 i1)   -- 5
+#eval toNat (arithEval e8 i2)   -- 9
 
 
 

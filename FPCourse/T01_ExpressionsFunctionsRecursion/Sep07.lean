@@ -6,6 +6,7 @@
 #check Empty     -- Empty : Type
 #check False     -- False : Prop
 
+
 #check Unit      -- Unit : Type
 #check True      -- True : Prop
 #check true      -- true : Bool
