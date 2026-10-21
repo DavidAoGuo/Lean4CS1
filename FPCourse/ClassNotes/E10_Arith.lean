@@ -82,6 +82,7 @@ definitions of total functions from this type.
 As a start, we can bind mnemonic identifiers
 to special values of type type, which include
 terms representing zero (`KNat.zero`) and one
+(`KNat.succ KNat.zero`).
 @@@ -/
 
 def kzero := KNat.zero
@@ -174,9 +175,6 @@ def lt : KNat → KNat → Bool :=
 def ge : KNat → KNat → Bool :=
   fun n m => gt n m || eq n m   --!(lt n m)
 
---| KNat.succ n', KNat.succ m' => dec sub n' m'
-
-#eval sub kthree ktwo
 /- @@@
 Whereas addition is interated incrementing,
 multiplication is iterated addition. To get
