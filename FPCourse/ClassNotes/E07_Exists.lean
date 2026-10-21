@@ -24,17 +24,31 @@ that order, first on a small concrete example, then in general.
 An existential proof is a pair: a value, and evidence about that
 value. We build up to that rule on a concrete example, state it,
 and then exercise it in other settings.
+
+To be concrete we now use the expressiveness of higher-order
+predicate logic in Lean to model DogWorld, a world with three
+dogs (Iris, Fido, and Sargent), and the properties of these dogs
+being Friendly, and being Furry.
+
+ is a type with three values and two predicates applicable
+to them. Read each constructor as a piece of evidence sufficient to
+prove friendliness. `Friendly` outright stipulates that Isis, a Dog,
+is Friendly, precisely because `Frienly d` has just two proofs: one
+where `d` is `Iris` and one where `d` is `Fido`. No constructor of
+the type as defined can possibly produce the term `Friendly Sargent`.
+The typechecker will therefore reject it as a value of the `dependent
+type, `Friendly d`. As `Friendly d` is in `Prop`, we must read it as
+a proposition, that *the Dog, d (to be given as an actual parameter),
+is friendly)*, and that fact that there is no way to construct that
+term, means that there *can be no proof* of `Friendly Sargent`. That
+in turn is how as a designer of worlds you declare that proposition
+to be false by making sure no proof of it can be constructed.
+
+### Dogs
 @@@ -/
 
-/- @@@
-### A Concrete Setting
 
-Here is a type with three values and two predicates on it, each
-given as an inductive family. Read each constructor as a piece of
-evidence: `Friendly` has evidence for Iris and for Fido, and none
-for Sargent. `Furry` has evidence for Iris and for Sargent.
-@@@ -/
-
+-- Three Dogs
 inductive Dog : Type where
 | Iris
 | Fido
@@ -42,53 +56,174 @@ inductive Dog : Type where
 
 open Dog
 
-inductive Friendly : Dog → Prop where
-| irisFriendly : Friendly Iris
-| fidoFriendly : Friendly Fido
+/- @@@
+### Two Properties of Dogs and their Proofs
+@@@ -/
 
+inductive Friendly : Dog → Prop where
+| irisIs : Friendly Iris
+| fidoIs : Friendly Fido
+
+-- The second property
 inductive Furry : Dog → Prop where
-| irisFurry : Furry Iris
-| sargentFurry : Furry Sargent
+| irisIs : Furry Iris
+| sargentIs : Furry Sargent
 
 open Friendly Furry
 
+
 /- @@@
-Iris is both friendly and furry, and we can prove it by pairing
-the two pieces of evidence.
+### Compound Properties are Properties
+
+Look at the available proofs. One proves Iris is
+friendly. Another proves Iris is furry. Iris thus
+has the conjoined, or *compound*, property of being
+both friendly and furry. Let's assert and prove it.
 @@@ -/
 
 example : Friendly Iris ∧ Furry Iris :=
-  -- Remember here ⟨_,_⟩ is shorthand for And.intro
-  ⟨ Friendly.irisFriendly, Furry.irisFurry ⟩
-  -- Notation usable for any one-constructor type
+  -- Exists.intro Friendly.irisIs Furry.irisFurry
+  ⟨ Friendly.irisIs, irisIs ⟩
+
 
 /- @@@
-We can name that compound property as a predicate of its own.
-These two definitions say the same thing; the first writes the
-predicate as an explicit function, the second takes the argument
-on the left.
+We now have the tools to express this conjunction
+more abstractly as a single new *compound* property,
+we'll call `Suitable`. We will say that a `Dog`, `d`,
+is suitable if it is both friendly and furry. A quick
+check confirms that in our world, `Iris` is `Suitable`.
+Indeed, that's what we just proved.
 @@@ -/
 
-def Suitable' : Dog → Prop := fun d => (Friendly d ∧ Furry d)
+/- @@@
+Here are two ways to write (or formalize) this idea
+in Lean. The shape of the type declaration in the first
+example, `Dog → Prop`, makes it visibly clear that we
+are defining a predicate on, a property of Dogs. The
+cost is that the formal parameter `d` has to be bound
+in the body of th function. Declaring `d` to the left
+of the colon makes it global to the function definition.
+The second version is concise and I usually prefer it.
+@@@ -/
 
-def Suitable (d : Dog) : Prop := (Friendly d ∧ Furry d)
+def Suitable' : Dog → Prop :=
+  fun d => (Friendly d ∧ Furry d)
 
--- Hey, Iris is suitable!
-example : Suitable Iris :=
-  And.intro Friendly.irisFriendly Furry.irisFurry
 
-#check (Suitable)
-#check (Friendly)
-#check (Furry)
+def Suitable (d : Dog) : Prop :=
+  (Friendly d ∧ Furry d)
 
 /- @@@
-### Where ∀ Fails and ∃ Succeeds
+Now we'll assert and prove that Iris is
+suitable. Here's a mathematical English
+proof.
 
-Contrast the two quantifiers on this setting. Is *every* dog
-friendly? No: we have no evidence that Sargent is friendly, and
-the attempt gets stuck in exactly that case. The two branches we
-can fill are filled; the hole shows what is missing.
+Prove: Iris is Suitable
+Proof. By the definition of Suitable,
+all that remains to prove is that Iris
+is Friendlly *and* Iris is Furry. This
+is proved by `And.intro` applied to the
+proofs we already have of those claims.
 
+Here it is in Lean. We also take a first
+opportunity to introduce *tactic mode* in
+Lean. Instead of writing directly in the
+Lean functional programming language you
+write tactic scripts: sequences of calls
+to what you should think of as subroutines
+from an ever growing library that try
+to automate certain proof construction
+steps, from the extremely simple (such as
+`Apply And.intro p q`, to the complex,
+e.g., to invoke a solver to reduce a
+system of linear inequalitys or other
+complex constraints.
+
+Tactic mode is entered using `by`.
+@@@ -/
+example : Suitable Iris :=
+  by
+    unfold Suitable
+    apply And.intro
+    exact Friendly.irisIs
+    exact Furry.irisIs
+
+/- @@@
+## Exists vs. Forall
+
+What makes *function terms* work as proofs of universal
+(`∀`) propositions is that the functions that they define
+and compute are necessarily *total. A proof of `∀ x, P x`
+show that for *any* `x` and can obtain a proof of `P x`.
+How? By *applying* the function that *is* the proof of
+`∀ x, P x`.
+
+The introduction rule for proving `∀ x, P x` is to
+assume an arbitrary `x` and show that from it one can
+derive a proof that `x` has property `P`. Heck, one can
+even write tghe type, `∀ x, P x` as `(x : X) → P x`, the
+type of function from any `x` (totality! to a proof `x`
+has property `P`.
+@@@ -/
+
+
+-- Every Dog that's not Sargent is Friendly
+theorem anyDogNotSargentIsFriendly : ∀ d, d ≠ Sargent → Friendly d :=
+  fun d h =>        -- assume arbitrary Dog and a proof d ≠ Sargent
+    match d with    -- show that that Dog, d, is friendly
+    | Iris => irisIs          -- Iris ≠ Sargent ✓
+    | Fido => fidoIs          -- Fido ≠ Sargent ✓
+    | Sargent => nomatch h    -- Sargent ≠ Sargent impossible case
+
+/- @@@
+The *introduction* rule for ∀ here says, assume you're
+given *any* Dog, d, along with a proof that d ≠ Sargent
+(the formal parameters of =a function) and show that from
+those assumptions, from those data and proof values, one
+can then derive a proof that d is Friendly. Lean accepts
+the function term, proving the universal generalization.
+
+The elimination rule, to use such a proof now that we have
+one, says to *apply* the proof of the *generalization* to
+any *particular* to get a proof for that special case. In
+the language of predicate logic, this is also called the
+rule of *universal specialization*. The intuitive reasoning
+is that if *every* dog that's not Sargent is friendly, then
+we can use that proof to show that any specific dog, let's
+pick Iris, that is provably not Sargent, is friendly.
+
+To prove Iris, for example, is friendly, from the *universal
+generalization*, `∀ x, P x`, just *apply* the proof of it (a
+total function) to the particular `x` at issue, here `Iris,`
+and evaluate/reduce that application to have Lean compute and
+for you to obtain a proof that `Iris` in particular is friendly.
+This is the inference rule called *universal specialization*
+in certain circles and just ∀ elimination in others. It tells
+you exactly how you can use such a proof. Apply it!
+
+Where an understanding of these ideas is especially useful is
+in the creating work that you have to do when you have done
+all the mechanical work to load up your proof context, with
+some demanding goal remaining to be proved. Then you have to
+have to be able to see ways to put multiple elements in your
+context together, using just the applicable rules, to get a
+proof of whatever remains to be proved in that moment. "Oh,
+I can apply this proof, `h : ∀ (x : X), P x`, to this value,
+(a : X), by writing the function application `h a` to get a
+proof of `P a`, encoding the propostion, `a` has property `P`.
+
+The result will prove that Iris is not Sargent.
+That Iris is not Sargent is proved by *negation*. Assume
+Iris = Sargent, then have Lean determine that's impossible.
+There is no equality (`Eq`) constructor that can possibly
+account for a proof of equality, (`h : Iris = Sargent`).
+Such a case is impossible and so can simply be dismissed.
+@@@ -/
+
+-- This check shows that the result proves `Friendly Iris`
+#check anyDogNotSargentIsFriendly Iris (fun i => nomatch i)
+
+/- @@@
 `#guard_msgs` checks the expected error, so this intentionally
 unfinished attempt does not prevent the file from compiling.
 @@@ -/
@@ -103,8 +238,8 @@ d : Dog
 example : ∀ (d : Dog), Friendly d :=
   fun d =>
     match d with
-    | Iris => Friendly.irisFriendly
-    | Fido => Friendly.fidoFriendly
+    | Iris => Friendly.irisIs
+    | Fido => Friendly.fidoIs
     | Sargent => _
 
 /- @@@
@@ -127,8 +262,8 @@ works.
 @@@ -/
 
 example : ∃ (d : Dog), Friendly d :=
-  -- Exists.intro Iris irisFriendly
-  ⟨ Iris, irisFriendly ⟩
+  -- Exists.intro Iris irisIs
+  ⟨ Iris, irisIs ⟩
 
 def simpf : Prop :=
   (∃ d, Suitable d) →
@@ -174,7 +309,7 @@ exactly the signature just described.
 /- @@@
 Now match our dog proof against the rule. The predicate is
 `Friendly`, so α is `Dog`. We supplied `Iris` for w and
-`Friendly.irisFriendly` for h, and Lean checked that the latter
+`Friendly.irisIs` for h, and Lean checked that the latter
 really is a proof of `Friendly Iris`, the predicate applied to the
 witness we chose. Had we offered `Sargent` as the witness, the
 second argument would have had to be a proof of `Friendly Sargent`,
@@ -187,7 +322,7 @@ the conjunction.
 @@@ -/
 
 example : ∃ (d : Dog), Suitable d :=
-  Exists.intro Iris (And.intro Friendly.irisFriendly Furry.irisFurry)
+  Exists.intro Iris (And.intro Friendly.irisIs irisIs)
 
 /- @@@
 ### The Same Rule, More Examples
@@ -274,8 +409,7 @@ The same rule is packaged in the standard library as
 #check @Exists.elim
 
 /- @@@
-Write out the signature of Exists.elim so it's readable:
-
+```lean
 Exists.elim.{u}                 -- *IF* u is any universe level
   {α : Sort u}                  -- and if α is any type in universe u
   {p : α → Prop}                -- and if p is any property of α values
@@ -285,13 +419,14 @@ Exists.elim.{u}                 -- *IF* u is any universe level
   (h₁ : ∃ x, p x)               -- and if there is at least one x with p
   (h₂ : ∀ (a : α), p a → b)   -- and if any a has property p, then b
   :                             -- *THEN*
-  b                             -- b, by the rule of false elimination
+  b
+```                           -- b, by the rule of false elimination
 
 The main source of confusion arises from bad parsing (precedence)
 
-  - (h₂ : ∀ (a : α), p a → b) as
-  - (h₂ : (∀ (a : α), p a) → b))    -- wrong, → precedence than ∀
-  - (h₂ : ∀ (a : α), (p a → b))     -- right, → grabs (p a) and b before ∀
+- (h₂ : ∀ (a : α), p a → b) as
+- (h₂ : (∀ (a : α), p a) → b))    -- wrong, → precedence than ∀
+- (h₂ : ∀ (a : α), (p a → b))     -- right, → grabs (p a) and b before ∀
 
 So the correct reading of (h₂ : ∀ (a : α), p a → b) is "given any a, if
 a has property p then b" rather than "if every a has property p, then b".
@@ -608,3 +743,283 @@ is known to be undecidable. So the absence of code behind `em` is
 not a gap in Lean's implementation that a better compiler might
 close. It is a theorem about computation.
 @@@ -/
+
+/- @@@
+```lean
+Exists.elim.{u}                 -- Given u as any universe level
+  {α : Sort u}                  -- α as any type in any universe
+  {p : α → Prop}                -- p as any property of α values
+  {b : Prop}                    -- and b is any arbitrary proposition
+
+  -- you can have a proof of `b` if ...
+  (h₁ : ∃ a, p a)               -- (1) at least one `a` has propery `p`
+  (h₂ : ∀ (a : α), p a → b)     -- (2) if *any* -- and if every `a` having `p` means `b` is true
+  :                             -- *THEN*
+  b                             -- b is true
+```
+@@@ -/
+
+/- @@@
+Example: Suppose, `h₁`, there's at least one red dog,
+and, `h₂`, if every dog is red means you needn't worry
+then `b`, you needn't worry.
+@@@ -/
+
+/- @@@
+First we'll define the *predicate*, `Red`, on Dogs,
+with proofs for all three dogs, which is all of them.
+@@@ -/
+
+inductive Red : Dog → Prop
+| irisIs : Red Iris
+| fidoIs : Red Fido
+| sargentIs : Red Sargent
+open Red
+
+/- @@@
+Now we can have a theorem proving all dogs are red.
+@@@ -/
+
+theorem allDogsRed : ∀ d, Red d :=
+  fun d =>
+    match d with
+    | Iris => irisIs
+    | Fido => fidoIs
+    | Sargent => sargentIs
+
+/- @@@
+Next, we'll show that with the additional
+assumption that if all dogs are red then you
+needn't worry, and show from that and boh
+@@@ -/
+
+/- @@@
+Finally we'll prove there's at least one red
+dog. Recall that a proof of ∃ x, P x has the
+shape of a (dependent) pair, where the first
+element is a value and the second is a proof
+of the property for that specific dog. Having
+to provide a witness shows there's at least
+one value of the type, while the proof shows
+that that dog (whichever it might be) is red,
+then together these facts prove that there is
+at least one red dog.
+
+@@@ -/
+
+theorem existsRedDog : ∃ d, Red d :=
+  Exists.intro    -- introduction rule for ∃
+    Iris          -- proposed witness to the ∃ claim
+    irisIs        -- proof that that dog is red
+
+
+/- @@@
+Note: Here's the same code using a nice notation.
+It de-sugars to that type's single constructor, in
+this case, `Exists.intro`.
+@@@ -/
+example : ∃ d, Red d := ⟨ Iris, irisIs ⟩
+
+/- @@@
+Now we have all the pieces to show that from
+`∃ d, Red d`, these additional facts, and the
+assumption that if every dog being red means
+`b`, you needn't worry, the we can prove that
+you needn't worry. Note: we assume `noWorry`
+(aka, `b`) can be any proposition at all.
+@@@ -/
+
+example
+  {noWorry : Prop}
+  (allRedRelax : (∀ d : Dog, (Red d → noWorry))) :
+  noWorry :=
+  Exists.elim  existsRedDog allRedRelax
+
+  /- @@@
+I keep telling you the wrong thing here. Look at
+`allRedRelax`. It now has the parentheses right. It
+*if any dog is red the you have no worries*. It is
+that fact combined with the fact that *there is at
+least one red dog* that means you can relax now.
+No worries!
+
+`∀ d` translates to *for any dog, `d`*. Then the
+part after the comma says, *if `d` (which now could
+be *any* dog) is red, then `b`: you needn't worry:
+if any dog is red you needn't worry.
+
+Note that it's *not* enough in general to leave out
+the existence proof. That's what ensures that there
+is at least one red dog. Without that, were the Dog
+type empty. We've already seen that you can always
+have a function from any `uninhabited` type to `False`
+(or to anything you want), as your only obligation is
+to define a total function taking *every* value of the
+uninhabited type, *of which there are none*, to proofs
+or values of the return type.
+@@@ -/
+
+-- Suppose there are exactly zero Cows
+inductive Cow where
+
+-- and being Red or not is a property of a Cow
+inductive RedCow : Cow → Prop
+
+/- @@@
+Then *all* cows, of which there are zero, are red.
+To prove it, as usual you first assume you're given
+any cow as an argument. As there aren't any, all of
+them are red.
+@@@ -/
+
+theorem allCowsRed : ∀ c, RedCow c :=
+  fun c =>      -- assume an impossibility
+    nomatch c   -- then anything goes
+
+/- @@@
+From that we can prove that the proposition
+asserting that if any cow is red, then there
+is a proof of False, precisely because there
+is no Cow at all, so the assumption that there
+is one is inconsistent.
+@@@ -/
+
+theorem ifAllCowsRedThenFalse : ∀ c, (RedCow c → False) :=
+  fun c => nomatch c
+
+/- @@@
+Finally let's use Lean's `axiom` keyword to force
+it to accept a bad definition of exists elmination:
+one that fails to require a proof of existence (which
+we just comment out here to make the change visible).
+This bad axiom makes our logic inconsistent, enabling
+us to prove that False is true.
+@@@ -/
+axiom badExistsElim.{u}         -- If given `u` as any universe level
+  {α : Sort u}                  -- `α` as any type in universe `u`
+  {p : α → Prop}                -- `p` as any property of `α` values
+  {b : Prop}                    -- and `b` as any proposition at all
+
+  (h₂ : ∀ (a : α), p a → b) :   -- then from `∀ (a : α), (p a → b)`
+  b                             -- we can derive a proof of `b`
+
+-- Here we derive a proof of False
+theorem oops : False := badExistsElim ifAllCowsRedThenFalse
+
+/- @@@
+OOPS! This is very, very bad. Adding badFalseElim
+as an axiom to our logic makes it *inconsistent*.
+and an inconsistent logic is useless, as everything
+then becomes true, or false, as you wish.
+@@@ -/
+
+#check oops
+
+
+/- @@@
+The precondition that `α` be inhabited is what
+protects us from such a logical catastrophe, as
+it ensures that we're *not* quantifying over an
+empty set so we *cannot* derive a proof of false
+from it. Remember: you can never define a total
+funciton from an inhabited to an uninhabited set,
+as you'd have to return an result from the latter
+for at least that one inhabitant, and that is not
+possible, as there are no values of that type to
+return. Here we'll use the correct rule of exists
+elimination to derive a proof of False. You figure
+out where is the inconsistent assumption that makes
+this possible? If we didn't have that argument, we
+would simple be unable to apply `Exists.elim` as it
+requires such an argument even to be fully applied.
+@@@ -/
+
+example
+  (h₁ : ∃ (c : Cow), RedCow c)               -- if at least one `a` has property `p`
+  (h₂ : ∀ (c : Cow), RedCow c → False) :   -- if *any* `a` has `p` then `b`
+  False :=
+Exists.elim h₁ h₂
+
+/- @@@
+Of course we don't need `Exists.elim` here.
+We can just eliminate the inconsisten assumption,
+showing that *this can never happen*, and be
+done with it.
+@@@ -/
+
+example
+  (h₁ : ∃ (c : Cow), RedCow c)               -- if at least one `a` has property `p`
+  (_h₂ : ∀ (c : Cow), RedCow c → False) :   -- if *any* `a` has `p` then `b`
+  False :=
+    nomatch h₁
+
+/- @@@
+Universal quantifications over uninhabited types
+are always trivially true. You can use the word
+`vacuous` to describe what you learn from such a
+proof, which is nothing at all. A real failure
+mode to avoid in writing proofs is to show that
+something interesting theorem is true only to find
+out that that's meaningless because you actually
+quantified over an empty set to obtain get it. In
+logical circles, you will see the term `ex falso`
+used for the axiom that anything is provable from
+a proof of false. In this class you learn that it's
+just the elimination for false: to use a proof of
+False to prove any other proposition, just apply
+this axiom. In Lean, it's `False.elim`. Now look
+at the recursor, or induction principle, for such
+a proof. That's *ex falso*.
+@@@ -/
+
+theorem exFalso {P : Prop} : False → P :=
+  fun f => nomatch f
+
+-- And that in turn is just *induction on False*
+#check (@False.elim)
+#check (@False.rec)
+
+/- @@@
+As a concrete example, consider the proposition,
+if `False` has a proof then every dog is friendly,
+even though by our definition that is clearly false.
+
+That assumption of something that's not true is
+what entitles you to accept the entire argument as
+it's premised on an assumption that can never hold.
+@@@ -/
+
+-- If there's a proof of false then there's a
+-- proof of anything: here, all dogs are friendly
+
+example : False → ∀ d, Friendly d :=
+  fun f => nomatch f
+
+/- @@@
+What to remember. The inference rule of predicate
+logic states that it's valid to reason as follows:
+(1) if there `exists` some object `o` with property
+`P`, and (2) if *any* such object has property `p`
+then `b` is valid, then there's a proof `b` is valid.
+
+And remember too, a proof of `b` is meaningless if
+it's derived from either a proof of an impossibility,
+such as proof of `False`, or from a vacuous universal
+quantification over an empty set (an uninhabited type
+in Lean / type theory).
+@@@ -/
+
+example : ∀ (_c : Cow), False := fun c => nomatch c
+
+/- @@@
+You can't do that derivation from an inhabited set.
+@@@ -/
+
+/--
+error: Missing cases:
+Iris
+Fido
+Sargent
+-/
+#guard_msgs in
+example : ∀ (d : Dog), False := fun d => nomatch d
