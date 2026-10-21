@@ -20,9 +20,16 @@ SHELL ["/bin/bash", "-c"]
 USER root
 
 # ----- Base tools -----
+# chromium: not for browsing -- it's what LeanCDP/ (a pure-Lean Chrome
+# DevTools Protocol client, unrelated to the course content) launches
+# headless (`--headless --no-sandbox --remote-debugging-port=...`) as
+# the live integration target for `lake exe leancdp-chromium-demo`.
+# --no-install-recommends still pulls its hard Depends (GTK, Mesa,
+# fonts, etc.), which is what headless rendering needs anyway.
 RUN apt-get update && \
     apt-get install --no-install-recommends --assume-yes \
       build-essential \
+      chromium \
       curl \
       git \
       openssh-client \

@@ -27,12 +27,12 @@ from scratch in `LeanCDP.Codec`.
 
 | Module | What it does | Status |
 |---|---|---|
-| `LeanCDP.Transport` | Raw async TCP: `connect`/`send`/`recv?`/`close` over `Std.Async.TCP`. | done |
+| `LeanCDP.Transport` | Raw async TCP (`connect`/`send`/`recv?`/`close` over `Std.Async.TCP`) plus `Buffered`, the shared "read exactly N bytes / until this delimiter" layer `WebSocket` and `Discovery` both build on. | done |
 | `LeanCDP.Codec.Base64` | RFC 4648 base64 encode/decode. | done, against the RFC's own test vectors |
 | `LeanCDP.Codec.SHA1` | FIPS 180-1 SHA-1. | done, against the FIPS vectors |
 | `LeanCDP.WebSocket` | RFC 6455: handshake, masking, length encoding, fragment reassembly, `Ping`/`Pong`. | done, see below |
 | `LeanCDP.Protocol` | The CDP JSON-RPC envelope and a generic `Client.call method params`. | done, see below |
-| `LeanCDP.Discovery` | Reads Chromium's `GET /json/version` and parses its `webSocketDebuggerUrl`. | HTTP/JSON handling done; untested against a real Chromium (see Known gaps) |
+| `LeanCDP.Discovery` | Reads Chromium's `GET /json/version` and parses its `webSocketDebuggerUrl`. | done, confirmed against a real Chromium (see below) |
 
 Each layer only depends on the one below it: `Transport` knows
 nothing about WebSockets; `WebSocket` knows nothing about CDP or
@@ -40,11 +40,11 @@ JSON; `Protocol` knows nothing about how the WebSocket URL was found.
 
 ## Verifying it actually works, not just that it compiles
 
-Nothing in this sandbox has a Chromium binary, so `LeanCDP.Testing.Mocks`
-provides three small, *independently written* mock servers (deliberately
-not sharing code with the client — the point is to cross-check two
-separate implementations of the same wire format) and `Tests.lean`
-drives the real client against each of them over actual loopback TCP:
+`LeanCDP.Testing.Mocks` provides three small, *independently written*
+mock servers (deliberately not sharing code with the client — the
+point is to cross-check two separate implementations of the same wire
+format) and `Tests.lean` drives the real client against each of them
+over actual loopback TCP:
 
 - a WebSocket echo server, exercising the handshake, message
   fragmentation in both directions, the 126-length payload encoding
@@ -85,20 +85,39 @@ from all three mock servers stay open (and, presumably, so does
 whatever libuv machinery backs them) for the rest of the process's
 life otherwise.
 
+### Also confirmed against a real Chromium
+
+`lake exe leancdp-chromium-demo` (see `ChromiumDemo.lean`) runs the
+whole stack -- `Discovery` → `Protocol.connect` → `Client.call` --
+against an actual headless Chromium, not a mock:
+
+```sh
+chromium --headless --no-sandbox --disable-gpu \
+  --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \
+  --user-data-dir=/tmp/leancdp-chromium-demo about:blank &
+lake exe leancdp-chromium-demo
+```
+
+`Browser.getVersion` and `Target.getTargets` both come back correctly
+decoded, real browser data (`about:blank`, the real `Chrome/…` version
+string, real target ids). This is also what found the one real bug
+`Tests.lean`'s mocks couldn't: `Discovery.fetchJson` originally read
+the HTTP response by waiting for the peer to close the connection,
+which every mock server obligingly does and a real Chromium does not
+-- its debugging HTTP server keeps the connection alive regardless of
+the client's `Connection: close` header, so the naive version hung
+forever on the very first real request. Fixed by reading the body by
+`Content-Length` instead (`LeanCDP.Transport.Buffered`, shared with
+`WebSocket`, now backs both).
+
 ## Using it for real
 
-```lean
-import LeanCDP
-
-open LeanCDP Std.Async
-
-def main : IO Unit := do
-  let (host, port, path) ← Discovery.discoverBrowserWebSocket "127.0.0.1" 9222
-  let client ← Protocol.connect host port path
-  let version ← client.call "Browser.getVersion"
-  IO.println version.compress
-  client.close
-```
+See `ChromiumDemo.lean` above for a complete, runnable example --
+`Discovery.discoverBrowserWebSocket` to find the browser, then
+`Protocol.connect` and `Client.call` for however many CDP methods you
+need. Everything in `LeanCDP` runs in the `Async` monad; a plain
+`IO`-returning `main` reaches it via `.block` (`(someAsyncAction).block
+: IO α`), same as every example in this repo does.
 
 `leancdp-probe` (see `Main.lean`) is a smaller, lower-level smoke test
 of just the `Transport` layer — a raw HTTP GET — kept around from
@@ -110,13 +129,6 @@ lake exe leancdp-probe <ipv4-host> <port> [path]
 
 ## Known gaps
 
-- **Never run against a real Chromium.** `Discovery`'s HTTP/JSON
-  parsing and `Protocol`'s request/response correlation are each
-  proven against a mock peer, but nothing has exercised them against
-  an actual `--remote-debugging-port`, because no Chromium binary
-  exists in this sandbox. Wiring `discoverBrowserWebSocket` into
-  `Protocol.connect` and pointing the pair at a live browser is the
-  natural next integration test.
 - **No `permessage-deflate`** or any other WebSocket extension.
 - **No 64-bit WebSocket frame lengths.** `WebSocket`'s encoder and
   decoder both implement the spec's three length encodings (7-bit,

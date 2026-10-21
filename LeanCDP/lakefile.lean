@@ -14,3 +14,6 @@ lean_exe «leancdp-probe» where
 
 lean_exe «leancdp-test» where
   root := `Tests
+
+lean_exe «leancdp-chromium-demo» where
+  root := `ChromiumDemo

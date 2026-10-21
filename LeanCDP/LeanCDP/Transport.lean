@@ -81,4 +81,78 @@ see EOF on its next read.
 def Connection.close (c : Connection) : Async Unit :=
   c.client.shutdown
 
+/--
+A `Connection` plus a read buffer, for protocols that need "give me
+exactly N bytes" or "give me everything up to this delimiter" rather
+than `recv?`'s raw, arbitrarily-chunked reads -- which is every
+protocol layered on top of a byte stream, since a single `recv?` can
+return less than a full frame/header/body, more than one, or a frame
+split across two calls. `WebSocket.Connection` and `Discovery.fetchJson`
+both build on this instead of each re-deriving it.
+
+(Finding out *why* this exists -- `recvAll`'s "read until the peer
+closes the connection" assumption breaks the moment a peer uses
+HTTP/1.1 keep-alive and never closes at all -- is what `Discovery`
+first ran into talking to a real Chromium.)
+-/
+structure Buffered where
+  private mk ::
+  conn : Connection
+  private buf : IO.Ref ByteArray
+
+/-- Wrap a `Connection` with a fresh, empty read buffer. -/
+def Buffered.of (conn : Connection) : Async Buffered := do
+  return ⟨conn, ← IO.mkRef ByteArray.empty⟩
+
+/-- Pull more bytes from the connection into the buffer. `false` means the peer closed. -/
+private def Buffered.fill (b : Buffered) : Async Bool := do
+  match ← b.conn.recv? with
+  | some chunk => b.buf.modify (· ++ chunk); return true
+  | none => return false
+
+/-- Read until the buffer holds at least `n` bytes, or the peer closes first. -/
+partial def Buffered.ensure (b : Buffered) (n : Nat) : Async Bool := do
+  let rec loop : Async Bool := do
+    if (← b.buf.get).size ≥ n then return true
+    else if ← b.fill then loop else return false
+  loop
+
+/-- Take and remove the first `n` bytes of the buffer. Caller must have `ensure`d at least `n` first. -/
+def Buffered.take (b : Buffered) (n : Nat) : Async ByteArray := do
+  let cur ← b.buf.get
+  b.buf.set (cur.extract n cur.size)
+  return cur.extract 0 n
+
+private def findSub (hay : ByteArray) (needle : ByteArray) : Option Nat := Id.run do
+  let n := hay.size
+  let m := needle.size
+  let mut result : Option Nat := none
+  if m == 0 then return none
+  if m ≤ n then
+    for start in [0 : n - m + 1] do
+      if result.isNone then
+        let mut matched := true
+        for j in [0:m] do
+          if hay.get! (start + j) != needle.get! j then matched := false
+        if matched then result := some start
+  return result
+
+/-- Read until `delim` appears in the buffer; returns the bytes before it and consumes through it. -/
+partial def Buffered.readUntil (b : Buffered) (delim : ByteArray) : Async (Option ByteArray) := do
+  let rec loop : Async (Option ByteArray) := do
+    let cur ← b.buf.get
+    match findSub cur delim with
+    | some idx =>
+      b.buf.set (cur.extract (idx + delim.size) cur.size)
+      return some (cur.extract 0 idx)
+    | none => if ← b.fill then loop else return none
+  loop
+
+/-- Read until the peer closes the connection, draining the buffer first. -/
+partial def Buffered.readToEnd (b : Buffered) : Async ByteArray := do
+  let rec loop : Async Unit := do
+    if ← b.fill then loop else pure ()
+  loop
+  b.buf.get
+
 end LeanCDP.Transport

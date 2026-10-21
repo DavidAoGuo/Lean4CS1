@@ -66,67 +66,19 @@ private def trimSpaces (s : String) : String :=
   String.ofList ((s.toList.dropWhile (· == ' ')).reverse.dropWhile (· == ' ')).reverse
 
 /--
-An open, handshaken WebSocket connection. Buffers whatever bytes
-`Transport.recv?` handed back but weren't yet consumed as a complete
-frame (or, during the handshake, as the HTTP response), since a
-single TCP read can straddle -- or span several -- of those
-boundaries.
+An open, handshaken WebSocket connection. Built on `Transport.Buffered`
+rather than the raw `Transport.Connection`, since a single TCP read
+can straddle -- or span several -- frame (or, during the handshake,
+HTTP response) boundaries.
 -/
 structure Connection where
   private mk ::
-  conn : LeanCDP.Transport.Connection
-  private buf : IO.Ref ByteArray
-
-/-- Find `needle` in `hay`, returning the index of its first occurrence. -/
-private def findSub (hay : ByteArray) (needle : ByteArray) : Option Nat := Id.run do
-  let n := hay.size
-  let m := needle.size
-  let mut result : Option Nat := none
-  if m == 0 then
-    return none
-  if m ≤ n then
-    for start in [0 : n - m + 1] do
-      if result.isNone then
-        let mut matched := true
-        for j in [0:m] do
-          if hay.get! (start + j) != needle.get! j then
-            matched := false
-        if matched then
-          result := some start
-  return result
+  buffered : LeanCDP.Transport.Buffered
 
 namespace Connection
 
-/-- Pull more bytes from the transport into `buf`. `false` means the peer closed the connection. -/
-private def fill (c : Connection) : Async Bool := do
-  match ← c.conn.recv? with
-  | some chunk => c.buf.modify (· ++ chunk); return true
-  | none => return false
-
-/-- Read until `buf` holds at least `n` bytes, or the peer closes first. -/
-private partial def ensure (c : Connection) (n : Nat) : Async Bool := do
-  let rec loop : Async Bool := do
-    let bufSize := (← c.buf.get).size
-    if bufSize ≥ n then return true
-    else if ← c.fill then loop else return false
-  loop
-
-/-- Take and remove the first `n` bytes of `buf`. Caller must have `ensure`d at least `n` first. -/
-private def take (c : Connection) (n : Nat) : Async ByteArray := do
-  let b ← c.buf.get
-  c.buf.set (b.extract n b.size)
-  return b.extract 0 n
-
-/-- Read until `delim` appears in `buf`; returns the bytes before it and consumes through it. -/
-private partial def readUntil (c : Connection) (delim : ByteArray) : Async (Option ByteArray) := do
-  let rec loop : Async (Option ByteArray) := do
-    let cur ← c.buf.get
-    match findSub cur delim with
-    | some idx =>
-      c.buf.set (cur.extract (idx + delim.size) cur.size)
-      return some (cur.extract 0 idx)
-    | none => if ← c.fill then loop else return none
-  loop
+/-- The underlying `Transport.Connection`, for `send`/`close`. -/
+private def conn (c : Connection) : LeanCDP.Transport.Connection := c.buffered.conn
 
 private def unmask (mask : ByteArray) (payload : ByteArray) : ByteArray := Id.run do
   let mut out := ByteArray.empty
@@ -163,8 +115,8 @@ private def sendFrame (c : Connection) (opcode : Opcode) (payload : ByteArray) :
 
 /-- Read exactly one raw frame: `(fin, opcode, payload)`, already unmasked. `none` at EOF. -/
 private def recvFrame (c : Connection) : Async (Option (Bool × Opcode × ByteArray)) := do
-  if !(← c.ensure 2) then return none
-  let hdr ← c.take 2
+  if !(← c.buffered.ensure 2) then return none
+  let hdr ← c.buffered.take 2
   let b0 := hdr.get! 0
   let b1 := hdr.get! 1
   let fin := (b0 &&& 0x80) != 0
@@ -173,22 +125,22 @@ private def recvFrame (c : Connection) : Async (Option (Bool × Opcode × ByteAr
   let lenField := (b1 &&& 0x7F).toNat
   let mut payloadLen := lenField
   if lenField == 126 then
-    if !(← c.ensure 2) then return none
-    let ext ← c.take 2
+    if !(← c.buffered.ensure 2) then return none
+    let ext ← c.buffered.take 2
     payloadLen := (ext.get! 0).toNat * 256 + (ext.get! 1).toNat
   else if lenField == 127 then
-    if !(← c.ensure 8) then return none
-    let ext ← c.take 8
+    if !(← c.buffered.ensure 8) then return none
+    let ext ← c.buffered.take 8
     let mut n := 0
     for i in [0:8] do
       n := n * 256 + (ext.get! i).toNat
     payloadLen := n
   let mut maskKey := ByteArray.empty
   if masked then
-    if !(← c.ensure 4) then return none
-    maskKey ← c.take 4
-  if !(← c.ensure payloadLen) then return none
-  let raw ← c.take payloadLen
+    if !(← c.buffered.ensure 4) then return none
+    maskKey ← c.buffered.take 4
+  if !(← c.buffered.ensure payloadLen) then return none
+  let raw ← c.buffered.take payloadLen
   return some (fin, opcode, if masked then unmask maskKey raw else raw)
 
 /--
@@ -238,8 +190,7 @@ if `Sec-WebSocket-Accept` doesn't match what RFC 6455 says it must be.
 -/
 def connect (host : String) (port : UInt16) (path : String := "/") : Async Connection := do
   let tconn ← LeanCDP.Transport.connect host port
-  let buf ← IO.mkRef ByteArray.empty
-  let c : Connection := ⟨tconn, buf⟩
+  let c : Connection := ⟨← LeanCDP.Transport.Buffered.of tconn⟩
   let key := Base64.encode (← IO.getRandomBytes 16)
   let req :=
     s!"GET {path} HTTP/1.1\r\n" ++
@@ -249,7 +200,7 @@ def connect (host : String) (port : UInt16) (path : String := "/") : Async Conne
     s!"Sec-WebSocket-Key: {key}\r\n" ++
     "Sec-WebSocket-Version: 13\r\n\r\n"
   c.conn.send req.toUTF8
-  match ← c.readUntil "\r\n\r\n".toUTF8 with
+  match ← c.buffered.readUntil "\r\n\r\n".toUTF8 with
   | none => throw <| .userError "LeanCDP.WebSocket.connect: connection closed during handshake"
   | some headerBytes =>
     let lines := (String.fromUTF8! headerBytes).splitOn "\r\n"
