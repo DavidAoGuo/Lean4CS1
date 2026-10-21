@@ -101,7 +101,7 @@ two choices: which two-argument operator to use (`*` or
 lift both choices to parameters.
 @@@ -/
 
-def reduce (op : α → α → α) (id : α) : List α → α
+def reduce {α : Type} (op : α → α → α) (id : α) : List α → α
 | List.nil      => id
 | List.cons h t => op h (reduce op id t)
 
@@ -426,6 +426,8 @@ the library's real one below needs its full name, `_root_.Monoid`.
 `AddMonoid` isn't shadowed by anything we defined, so it needs no
 prefix.
 @@@ -/
+
+-- _root. picks the definition in the root, not this nested, namespace
 
 def foldMonoid {α : Type} [_root_.Monoid α] (xs : List α) : α :=
   xs.foldr (· * ·) 1

@@ -72,7 +72,6 @@ definitions of total functions from this type.
 As a start, we can bind mnemonic identifiers
 to special values of type type, which include
 terms representing zero (`KNat.zero`) and one
-(`KNat.succ KNat.zero`).
 ```lean
 def kzero := KNat.zero
 def kone := KNat.succ kzero
@@ -121,6 +120,47 @@ the first argument `a`, `b` times for any `b`.
 def add : KNat → KNat → KNat                -- Addition function
   | a, KNat.zero   => a
   | a, KNat.succ b => inc (add a b)
+
+
+def sub : KNat → KNat → KNat
+| n, KNat.zero => n
+| n, KNat.succ m' => dec (sub n m')
+
+#eval sub kthree ktwo
+#eval sub ktwo kthree
+#eval sub kthree kthree
+
+
+def eq : KNat → KNat → Bool
+| KNat.zero, KNat.zero => true
+| KNat.succ n', KNat.succ m' => eq n' m'
+| _, _ => false
+
+#eval eq kthree kthree
+#eval eq kthree kone
+#eval eq kone kthree
+
+def le : KNat → KNat → Bool
+| (KNat.succ n'), (KNat.succ m') => le n' m'
+| KNat.succ _n', KNat.zero => false
+| KNat.zero, _  => true
+
+#eval le kthree kthree
+#eval le kthree kone
+#eval le kone kthree
+
+def gt : KNat → KNat → Bool :=
+  fun n m => !le n m
+
+def lt : KNat → KNat → Bool :=
+  fun n m => le n m && !(eq n m)
+
+def ge : KNat → KNat → Bool :=
+  fun n m => gt n m || eq n m   --!(lt n m)
+
+--| KNat.succ n', KNat.succ m' => dec sub n' m'
+
+#eval sub kthree ktwo
 ```
 
 Whereas addition is interated incrementing,
