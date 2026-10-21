@@ -25,15 +25,15 @@ from scratch in `LeanCDP.Codec`.
 
 ## Layers
 
-| Module | What it does | Status |
-|---|---|---|
-| `LeanCDP.Transport` | Raw async TCP (`connect`/`send`/`recv?`/`close` over `Std.Async.TCP`) plus `Buffered`, the shared "read exactly N bytes / until this delimiter" layer `WebSocket` and `Discovery` both build on. | done |
-| `LeanCDP.Codec.Base64` | RFC 4648 base64 encode/decode. | done, against the RFC's own test vectors |
-| `LeanCDP.Codec.SHA1` | FIPS 180-1 SHA-1. | done, against the FIPS vectors |
-| `LeanCDP.WebSocket` | RFC 6455: handshake, masking, length encoding, fragment reassembly, `Ping`/`Pong`. | done, see below |
-| `LeanCDP.Protocol` | The CDP JSON-RPC envelope and a generic `Client.call method params`. | done, see below |
-| `LeanCDP.Discovery` | Reads Chromium's `GET /json/version` and parses its `webSocketDebuggerUrl`. | done, confirmed against a real Chromium (see below) |
-| `LeanCDP.Page` | `Target.createTarget`/`attachToTarget` + `Page.navigate`/`captureScreenshot` choreography, plus a `Runtime.evaluate`-polling `waitForLoad` (`Protocol.Client` has no event subscriber to wait on `Page.loadEventFired` with). | done, confirmed against a real Chromium (see below) |
+| Module | What it does |
+|---|---|
+| `LeanCDP.Transport` | Async TCP: `connect` (numeric IPv4 literal, or any hostname via `Std.Async.DNS`), `send`/`recv?`/`close`, plus `Buffered` — "read exactly N bytes" / "read until this delimiter" — shared by `WebSocket` and `Discovery`. |
+| `LeanCDP.Codec.Base64` | RFC 4648 base64 encode/decode. |
+| `LeanCDP.Codec.SHA1` | FIPS 180-1 SHA-1. |
+| `LeanCDP.WebSocket` | RFC 6455 client: handshake (refusing any server-selected extension it wasn't offered), mandatory client-side masking, all three payload-length encodings, fragment reassembly, automatic `Ping`→`Pong`, and UTF-8 validation of completed Text messages (closes with code 1007 on invalid UTF-8, per §8.1). |
+| `LeanCDP.Protocol` | The CDP JSON-RPC envelope. A single background reader per `Client` dispatches responses to the matching call by request `id` (so any number of calls can be in flight at once) and queues anything with no `id` as an event, retrievable via `pollEvent`/`nextEvent`/the session-filtered `*Matching` variants. |
+| `LeanCDP.Discovery` | Reads Chromium's `GET /json/version` and parses its `webSocketDebuggerUrl`. |
+| `LeanCDP.Page` | `Target.createTarget`/`attachToTarget` + `Page.navigate`/`captureScreenshot`, and a `waitForLoad` that waits on a real `Page.loadEventFired` event scoped to its own session. |
 
 Each layer only depends on the one below it: `Transport` knows
 nothing about WebSockets; `WebSocket` knows nothing about CDP or
@@ -41,20 +41,31 @@ JSON; `Protocol` knows nothing about how the WebSocket URL was found.
 
 ## Verifying it actually works, not just that it compiles
 
-`LeanCDP.Testing.Mocks` provides three small, *independently written*
+`LeanCDP.Testing.Mocks` provides five small, *independently written*
 mock servers (deliberately not sharing code with the client — the
 point is to cross-check two separate implementations of the same wire
 format) and `Tests.lean` drives the real client against each of them
 over actual loopback TCP:
 
 - a WebSocket echo server, exercising the handshake, message
-  fragmentation in both directions, the 126-length payload encoding
-  in both directions, and unsolicited-`Ping` → automatic-`Pong`;
+  fragmentation in both directions, the 126-length *and*
+  64-bit-length payload encodings in both directions, and
+  unsolicited-`Ping` → automatic-`Pong`;
+- a server that sends one deliberately-invalid-UTF-8 Text frame,
+  exercising `WebSocket`'s rejection of it (closing with code 1007
+  rather than handing the bytes back);
+- a server whose handshake response selects `permessage-deflate`
+  despite never being offered it, exercising `connect`'s refusal to
+  complete that handshake at all;
 - a plain HTTP server returning a canned `/json/version`-shaped body,
-  exercising `Discovery.fetchJson`/`version`/`discoverBrowserWebSocket`;
+  exercising `Discovery.fetchJson`/`version`/`discoverBrowserWebSocket`
+  *and*, reached a second time via the hostname `"localhost"` instead
+  of a literal, `Transport.connect`'s DNS resolution path;
 - a fake CDP peer that echoes back `{"id","method","params"}` as
-  `{"id","result"}`, exercising `Protocol.Client.call`'s request-id
-  round trip.
+  `{"id","result"}` (with an artificial delay for one method, `"Slow"`),
+  exercising `Protocol.Client.call`'s request-id round trip, an event
+  arriving with no call in flight (`nextEvent`), and two calls
+  answered out of send order both resolving to the *correct* caller.
 
 Plus pure-function vectors for SHA-1 (FIPS 180-1), base64 (RFC 4648),
 and the exact worked handshake example from RFC 6455 §1.3.
@@ -65,32 +76,14 @@ lake build
 lake exe leancdp-test
 ```
 
-All 15 checks pass as of this writing, reliably (checked with
-repeated runs, both via `lake exe` and the built binary directly).
-
-Getting there took one real concurrency bug worth recording:
-`Async`'s `concurrently` guarantees both sides of a pair eventually
-run, but not that the server side's `listen` happens before the
-client side's `connect` -- racing those directly was an *intermittent*
-hang (nothing listening yet when the client's `connect` fired, and
-loopback TCP's retry-before-giving-up window is much longer than
-you'd want a test to wait). The fix (see `Testing.Mocks.listenOn`) is
-to bind-and-listen *first*, synchronously, and only hand the
-already-listening socket into the concurrent pair -- not something
-`concurrently`'s own contract was ever going to save us from.
-
-`main` in `Tests.lean` also calls `IO.Process.exit` explicitly rather
-than falling through normally, since `Std.Async.TCP.Socket.Server`
-exposes no `close` in this version of `Std` -- the listening sockets
-from all three mock servers stay open (and, presumably, so does
-whatever libuv machinery backs them) for the rest of the process's
-life otherwise.
+All 22 checks pass, reliably, both via `lake exe` and the built
+binary directly.
 
 ### Also confirmed against a real Chromium
 
 `lake exe leancdp-chromium-demo` (see `ChromiumDemo.lean`) runs the
-whole stack -- `Discovery` → `Protocol.connect` → `Client.call` --
-against an actual headless Chromium, not a mock:
+whole stack — `Discovery` → `Protocol.connect` → `Client.call` →
+`LeanCDP.Page` — against an actual headless Chromium, not a mock:
 
 ```sh
 chromium --headless --no-sandbox --disable-gpu \
@@ -99,34 +92,12 @@ chromium --headless --no-sandbox --disable-gpu \
 lake exe leancdp-chromium-demo
 ```
 
-`Browser.getVersion` and `Target.getTargets` both come back correctly
-decoded, real browser data (the real `Chrome/…` version string, real
-target ids); so does an actual round trip through `LeanCDP.Page`:
-create a tab, run JavaScript in it via `Runtime.evaluate` to paint
-some content, and `Page.captureScreenshot` it back — checked for a
-valid PNG signature and a non-trivial size, then written to
-`chromium-demo-screenshot.png` so a human can also just look at it.
-No mock could stand in for this part: a fake WebSocket peer can echo
-back *something* JSON-shaped for `captureScreenshot`, but "is this
-actually a PNG of actually-rendered content" is a question only an
-actual rendering engine can answer.
-
-This is also what found two real bugs `Tests.lean`'s mocks couldn't:
-
-1. `Discovery.fetchJson` originally read the HTTP response by waiting
-   for the peer to close the connection, which every mock server
-   obligingly does and a real Chromium does not -- its debugging HTTP
-   server keeps the connection alive regardless of the client's
-   `Connection: close` header, so the naive version hung forever on
-   the very first real request. Fixed by reading the body by
-   `Content-Length` instead (`LeanCDP.Transport.Buffered`, shared with
-   `WebSocket`, now backs both).
-2. CDP's `Page`/`Runtime` methods don't work on the raw browser-wide
-   connection at all -- they need a target attached in "flat" session
-   mode first, then every call tagged with that session's id. Missing
-   entirely until `Protocol.Client.callWith`/`callSession` and
-   `LeanCDP.Page` were added; there was no way the browser-level-only
-   mock test would ever have surfaced that gap.
+`Browser.getVersion` and `Target.getTargets` come back correctly
+decoded, real browser data. `LeanCDP.Page` opens a tab, runs
+JavaScript in it via `Runtime.evaluate` to paint some content, and
+screenshots it back — checked for a valid PNG signature and a
+non-trivial size, then written to `chromium-demo-screenshot.png` so a
+human can also just look at it.
 
 ## Using it for real
 
@@ -156,27 +127,34 @@ when that was all there was:
 lake exe leancdp-probe <ipv4-host> <port> [path]
 ```
 
+## Design notes worth knowing
+
+- **No `permessage-deflate` or other WebSocket extensions, by
+  design.** This client's handshake request never lists an extension
+  in `Sec-WebSocket-Extensions`, and RFC 6455 §9.1 forbids a compliant
+  server from selecting one the client didn't offer — so there is
+  nothing to decompress in normal operation. `connect` additionally
+  refuses outright if a server's handshake response names an
+  extension anyway, rather than risk silently misreading compressed
+  frames as raw bytes.
+- **`Transport.Connection.close` is best-effort.** Closing an
+  already-closed (or already-torn-down-by-the-peer) connection counts
+  as success, not an error — closing the last target attached to a
+  Chromium connection, for instance, can take the whole debugging
+  socket down with it before this package's own `close` call runs.
+
 ## Known gaps
 
-- **No `permessage-deflate`** or any other WebSocket extension.
-- **No 64-bit WebSocket frame lengths.** `WebSocket`'s encoder and
-  decoder both implement the spec's three length encodings (7-bit,
-  16-bit, 64-bit), but the test suite only exercises the first two —
-  hitting the 64-bit path needs a payload over 64KB, which nothing
-  here currently sends.
-- **No UTF-8 validation** of incoming text-frame payloads (RFC 6455
-  requires closing the connection on invalid UTF-8; this just hands
-  back the raw bytes).
-- **`Protocol.Client` has no event/notification subscriber.** CDP
-  events (`{"method","params"}` with no `id`) are parsed correctly by
-  `Message.parse` but silently dropped by `Client.call`'s receive
-  loop — there's no way for a caller to be told about one.
-  `Page.Session.waitForLoad` works around exactly this by *polling*
-  `Runtime.evaluate "document.readyState"` instead of subscribing to
-  `Page.loadEventFired`; fine for that, not fine for anything that
-  needs to react to, say, `Network.responseReceived` as it happens.
-- **One request in flight at a time.** `Client.call` blocks until its
-  own response arrives; there's no concurrent-call support.
-- **`Transport.connect` takes only numeric IPv4 literals**, no
-  hostnames. `Std.Async.DNS` already ships a resolver; wiring it in
-  is future work, not a hard problem.
+- **No typed per-CDP-domain API.** `Protocol.Client.call`/`callSession`
+  are fully generic (`call "Page.navigate" params` works for any of
+  CDP's hundreds of methods across dozens of domains); hand-writing
+  typed request/response wrappers for them is a separate, much longer
+  project than this one.
+- **`LeanCDP.Page` covers one workflow.** Create a tab, navigate it,
+  wait for load, screenshot it, run JavaScript in it, close it. Other
+  CDP domains (`DOM`, `Network`, `Input`, ...) are reachable directly
+  through `Protocol.Client.callSession` but have no dedicated wrapper
+  of their own yet.
+- **Never run against a real Firefox**, or any non-Chromium CDP
+  target — only Chromium, which this client has been built and tested
+  against throughout.

@@ -6,11 +6,22 @@ text frame carrying JSON.
 Handles the parts of the spec a real connection needs: the HTTP
 Upgrade handshake (with `Sec-WebSocket-Accept` verification), masking
 of outgoing frames (mandatory for a client), the three payload-length
-encodings, message reassembly across fragmented frames, and replying
-to `Ping` with `Pong`. What it does not do: compression extensions
-(`permessage-deflate`) and UTF-8 validation of text payloads -- both
-left as exercises, same spirit as the ones at the end of the course's
-`E11_abstractAlgebra.lean`.
+encodings, message reassembly across fragmented frames, replying to
+`Ping` with `Pong`, and validating that a completed text message is
+actually UTF-8 (closing with code 1007 if not, per RFC 6455 §8.1,
+rather than handing a caller bytes that aren't the text frame they
+were promised).
+
+What it does not do: `permessage-deflate` or any other negotiated
+extension. The handshake this module sends never lists any extension
+in `Sec-WebSocket-Extensions`, so RFC 6455 §9.1 already forbids a
+compliant server from applying one ("these extensions MUST be a
+subset of the extensions requested by the client") -- there is
+nothing to decompress because nothing was ever asked to be
+compressed. `connect` additionally checks the handshake *response*
+for a `Sec-WebSocket-Extensions` header and refuses the connection if
+one shows up anyway, rather than silently misreading compressed
+frames as raw bytes.
 -/
 
 import LeanCDP.Transport
@@ -113,6 +124,11 @@ private def encodeFrame (opcode : Opcode) (payload : ByteArray) : Async ByteArra
 private def sendFrame (c : Connection) (opcode : Opcode) (payload : ByteArray) : Async Unit := do
   c.conn.send (← encodeFrame opcode payload)
 
+/-- Send a `Close` frame carrying a status code (RFC 6455 §5.5.1 / §7.4) and a reason. -/
+private def sendCloseWithCode (c : Connection) (code : UInt16) (reason : String) : Async Unit := do
+  let payload := ByteArray.mk #[(code >>> 8).toUInt8, (code &&& 0xFF).toUInt8] ++ reason.toUTF8
+  c.sendFrame .close payload
+
 /-- Read exactly one raw frame: `(fin, opcode, payload)`, already unmasked. `none` at EOF. -/
 private def recvFrame (c : Connection) : Async (Option (Bool × Opcode × ByteArray)) := do
   if !(← c.buffered.ensure 2) then return none
@@ -163,7 +179,14 @@ partial def recvMessage (c : Connection) : Async (Option (Opcode × ByteArray)) 
         let merged := match acc? with
           | some (o, p) => (o, p ++ payload)
           | none => (opcode, payload)
-        if fin then return some merged else loop (some merged)
+        if fin then
+          let (msgOpcode, msgPayload) := merged
+          if msgOpcode == .text && !msgPayload.validateUTF8 then
+            c.sendCloseWithCode 1007 "invalid UTF-8 in text frame"
+            throw <| .userError "LeanCDP.WebSocket.recvMessage: peer sent a Text message that isn't valid UTF-8 (closed with code 1007)"
+          else
+            return some merged
+        else loop (some merged)
   loop none
 
 /-- Send a complete text message as a single frame. -/
@@ -184,9 +207,15 @@ end Connection
 /--
 Perform the RFC 6455 handshake against `host:port`, requesting
 `path`, and return the connection ready for `sendText`/`recvMessage`.
-`host` must be a numeric IPv4 literal (same restriction as
-`Transport.connect`). Throws if the server doesn't answer `101`, or
-if `Sec-WebSocket-Accept` doesn't match what RFC 6455 says it must be.
+`host` resolves through `Transport.connect` (a numeric literal
+instantly, anything else via DNS). Throws if the server doesn't
+answer `101`, if `Sec-WebSocket-Accept` doesn't match what RFC 6455
+says it must be, or if the response lists any `Sec-WebSocket-Extensions`
+-- this module never requests one, so a compliant server has none to
+legitimately select (RFC 6455 §9.1); one showing up anyway means
+either a non-compliant server or an extension (`permessage-deflate`,
+say) this module cannot decode, and either way frames would come back
+as garbage if this didn't refuse the connection outright.
 -/
 def connect (host : String) (port : UInt16) (path : String := "/") : Async Connection := do
   let tconn ← LeanCDP.Transport.connect host port
@@ -207,6 +236,9 @@ def connect (host : String) (port : UInt16) (path : String := "/") : Async Conne
     let statusLine := lines.headD ""
     if !((statusLine.splitOn " ").contains "101") then
       throw <| .userError s!"LeanCDP.WebSocket.connect: handshake rejected: {statusLine}"
+    if let some extLine := lines.find? (fun l => (l.toLower).startsWith "sec-websocket-extensions:") then
+      throw <| .userError
+        s!"LeanCDP.WebSocket.connect: server selected an extension we never offered: {extLine}"
     match lines.find? (fun l => (l.toLower).startsWith "sec-websocket-accept:") with
     | none => throw <| .userError "LeanCDP.WebSocket.connect: no Sec-WebSocket-Accept header"
     | some line =>

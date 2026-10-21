@@ -15,6 +15,7 @@ ends.
 import LeanCDP.Transport
 import LeanCDP.WebSocket
 import Lean.Data.Json
+import Std.Async.Timer
 
 namespace LeanCDP.Testing
 
@@ -116,10 +117,15 @@ private def unmaskedFrame (fin : Bool) (opcode : UInt8) (payload : ByteArray) : 
   out := out.push (((if fin then 0x80 else 0x00) : UInt8) ||| opcode)
   if len < 126 then
     out := out.push len.toUInt8
-  else
+  else if len ≤ 0xFFFF then
     out := out.push 126
     out := out.push ((len / 256) % 256).toUInt8
     out := out.push (len % 256).toUInt8
+  else
+    out := out.push 127
+    for i in [0:8] do
+      let shift := (7 - i) * 8
+      out := out.push ((len >>> shift) % 256).toUInt8
   return out ++ payload
 
 /-- Server-side RFC 6455 handshake: read the request up to the blank line,
@@ -212,18 +218,29 @@ def runHttpJsonServerOnce (srv : TCP.Socket.Server) (wsPort : UInt16) : Async Un
   client.shutdown
 
 /--
-Accept exactly one connection, perform the WebSocket handshake, then
-answer every incoming `{"id", "method", "params"}` text frame with
-`{"id", "result": {"echoedMethod", "params"}}` -- just enough of a
-fake CDP peer to prove `LeanCDP.Protocol.Client.call` actually
-round-trips a request id and gets back the matching, correctly
-decoded result. Stops on `Close`.
+Accept exactly one connection, perform the WebSocket handshake, then:
+
+- immediately send one unsolicited event, `{"method":"Mock.ready",
+  "params":{"ok":true}}`, with no `id` at all, to exercise
+  `Protocol.Client.pollEvent`/`nextEvent` -- proving an event queued
+  with *no* call in flight gets picked up rather than silently lost;
+- answer every incoming `{"id", "method", "params"}` text frame with
+  `{"id", "result": {"echoedMethod", "params"}}`, proving
+  `Client.call`'s request-id round trip, *except* method `"Slow"`,
+  which sleeps 300ms first -- fired concurrently with a `"Fast"` call
+  from the test client, this proves responses answered out of send
+  order still resolve the *correct* caller's promise, not just
+  whichever call happens to be first in some queue.
+
+Stops on `Close`.
 -/
 partial def runCdpMockServerOnce (srv : TCP.Socket.Server) : Async Unit := do
   let client ← srv.accept
   let buf ← IO.mkRef ByteArray.empty
   let p : Peer := ⟨client, buf⟩
   p.doHandshake
+  let readyEvent := Json.mkObj [("method", Json.str "Mock.ready"), ("params", Json.mkObj [("ok", Json.bool true)])]
+  client.send (unmaskedFrame true 0x1 readyEvent.compress.toUTF8)
   let rec loop : Async Unit := do
     let (opcode, payload) ← p.recvMaskedFrame
     if opcode == 0x8 then
@@ -235,6 +252,8 @@ partial def runCdpMockServerOnce (srv : TCP.Socket.Server) : Async Unit := do
         let id := req.getObjValD "id"
         let method := req.getObjValD "method"
         let params := req.getObjValD "params"
+        if (method.getStr?.toOption.getD "") == "Slow" then
+          Std.Async.sleep (300 : Std.Time.Millisecond.Offset)
         let reply := Json.mkObj
           [("id", id), ("result", Json.mkObj [("echoedMethod", method), ("params", params)])]
         client.send (unmaskedFrame true 0x1 reply.compress.toUTF8)
@@ -242,5 +261,54 @@ partial def runCdpMockServerOnce (srv : TCP.Socket.Server) : Async Unit := do
     else
       loop
   loop
+
+/--
+Accept exactly one connection, perform the handshake, then send one
+text frame containing a byte that is not valid UTF-8 anywhere (`0x80`,
+a bare continuation byte) -- `LeanCDP.WebSocket.Connection.recvMessage`
+is supposed to reject this per RFC 6455 §8.1 rather than hand it back.
+Afterward, reads one more frame and reports whether it was a `Close`
+carrying status code 1007, to confirm the client didn't just notice
+and disconnect some other way.
+-/
+def runInvalidUtf8ServerOnce (srv : TCP.Socket.Server) : Async Bool := do
+  let client ← srv.accept
+  let buf ← IO.mkRef ByteArray.empty
+  let p : Peer := ⟨client, buf⟩
+  p.doHandshake
+  let badUtf8 : ByteArray := ByteArray.mk #[0x80]
+  client.send (unmaskedFrame true 0x1 badUtf8)
+  let (opcode, payload) ← p.recvMaskedFrame
+  if opcode != 0x8 || payload.size < 2 then
+    return false
+  let code := (payload.get! 0).toNat * 256 + (payload.get! 1).toNat
+  return code == 1007
+
+/--
+Accept exactly one connection, but answer the handshake with a
+`Sec-WebSocket-Extensions: permessage-deflate` header the client never
+asked for -- `LeanCDP.WebSocket.connect` is supposed to refuse any
+connection whose server selects an extension that was never offered
+(RFC 6455 §9.1), so a correct client sees this server fail to connect,
+not a usable `Connection`.
+-/
+def runExtensionServerOnce (srv : TCP.Socket.Server) : Async Unit := do
+  let client ← srv.accept
+  let buf ← IO.mkRef ByteArray.empty
+  let p : Peer := ⟨client, buf⟩
+  let reqHeader ← p.readUntil "\r\n\r\n".toUTF8
+  let lines := (String.fromUTF8! reqHeader).splitOn "\r\n"
+  let some keyLine := lines.find? (fun l => l.toLower.startsWith "sec-websocket-key:")
+    | throw <| .userError "Mocks: no Sec-WebSocket-Key in request"
+  let key := String.ofList
+    ((((keyLine.splitOn ":").drop 1).headD "").toList.dropWhile (· == ' '))
+  let accept := WebSocket.expectedAccept key
+  let resp :=
+    "HTTP/1.1 101 Switching Protocols\r\n" ++
+    "Upgrade: websocket\r\n" ++
+    "Connection: Upgrade\r\n" ++
+    "Sec-WebSocket-Extensions: permessage-deflate\r\n" ++
+    s!"Sec-WebSocket-Accept: {accept}\r\n\r\n"
+  client.send resp.toUTF8
 
 end LeanCDP.Testing

@@ -17,6 +17,7 @@ built on top of it.
 import Std.Async.TCP
 import Std.Internal.UV.TCP
 import Std.Net.Addr
+import Std.Async.DNS
 
 namespace LeanCDP.Transport
 
@@ -32,14 +33,22 @@ structure Connection where
   client : TCP.Socket.Client
 
 /--
-Resolve a numeric IPv4 literal (e.g. `"127.0.0.1"`) and connect to it
-on `port`. Does not do DNS -- hostnames need a resolver on top of this
-(`Std.Async.DNS` already ships one; wiring it in is future work, see
-README).
+Resolve `host` to an IPv4 address and connect to it on `port`.
+Numeric literals (`"127.0.0.1"`) resolve instantly, with no DNS
+round trip; anything else goes through `Std.Async.DNS.getAddrInfo`
+(restricted to `AddressFamily.ipv4`, same as everywhere else in this
+package -- see `WebSocket`/`Discovery`, which only ever hand this
+function what `getAddrInfo` or a literal already produced). Throws if
+resolution comes back with no IPv4 address at all.
 -/
 def connect (host : String) (port : UInt16) : Async Connection := do
-  let some ipv4 := IPv4Addr.ofString host
-    | throw <| .userError s!"LeanCDP.Transport.connect: not an IPv4 literal: {host}"
+  let ipv4 ← match IPv4Addr.ofString host with
+    | some literal => pure literal
+    | none =>
+      let addrs ← DNS.getAddrInfo host "" (some .ipv4)
+      let some (.v4 resolved) := addrs.find? (fun a => match a with | .v4 _ => true | .v6 _ => false)
+        | throw <| .userError s!"LeanCDP.Transport.connect: no IPv4 address found for {host}"
+      pure resolved
   let addr := SocketAddress.v4 { addr := ipv4, port := port }
   let client ← TCP.Socket.Client.mk
   client.connect addr
@@ -76,10 +85,16 @@ partial def Connection.recvAll (c : Connection) : Async ByteArray := do
 
 /--
 Shut down the write side of the connection (half-close). The peer will
-see EOF on its next read.
+see EOF on its next read. Closing is best-effort: if the peer already
+tore down the connection first (observed against a real Chromium --
+closing the last attached target can take the whole debugging socket
+down with it, not just that target), the shutdown call itself fails
+with "socket is not connected"; since the connection is then exactly
+as closed as this call was trying to make it, that's success, not an
+error worth surfacing.
 -/
 def Connection.close (c : Connection) : Async Unit :=
-  c.client.shutdown
+  try c.client.shutdown catch _ => pure ()
 
 /--
 A `Connection` plus a read buffer, for protocols that need "give me
