@@ -33,6 +33,7 @@ from scratch in `LeanCDP.Codec`.
 | `LeanCDP.WebSocket` | RFC 6455: handshake, masking, length encoding, fragment reassembly, `Ping`/`Pong`. | done, see below |
 | `LeanCDP.Protocol` | The CDP JSON-RPC envelope and a generic `Client.call method params`. | done, see below |
 | `LeanCDP.Discovery` | Reads Chromium's `GET /json/version` and parses its `webSocketDebuggerUrl`. | done, confirmed against a real Chromium (see below) |
+| `LeanCDP.Page` | `Target.createTarget`/`attachToTarget` + `Page.navigate`/`captureScreenshot` choreography, plus a `Runtime.evaluate`-polling `waitForLoad` (`Protocol.Client` has no event subscriber to wait on `Page.loadEventFired` with). | done, confirmed against a real Chromium (see below) |
 
 Each layer only depends on the one below it: `Transport` knows
 nothing about WebSockets; `WebSocket` knows nothing about CDP or
@@ -99,23 +100,51 @@ lake exe leancdp-chromium-demo
 ```
 
 `Browser.getVersion` and `Target.getTargets` both come back correctly
-decoded, real browser data (`about:blank`, the real `Chrome/…` version
-string, real target ids). This is also what found the one real bug
-`Tests.lean`'s mocks couldn't: `Discovery.fetchJson` originally read
-the HTTP response by waiting for the peer to close the connection,
-which every mock server obligingly does and a real Chromium does not
--- its debugging HTTP server keeps the connection alive regardless of
-the client's `Connection: close` header, so the naive version hung
-forever on the very first real request. Fixed by reading the body by
-`Content-Length` instead (`LeanCDP.Transport.Buffered`, shared with
-`WebSocket`, now backs both).
+decoded, real browser data (the real `Chrome/…` version string, real
+target ids); so does an actual round trip through `LeanCDP.Page`:
+create a tab, run JavaScript in it via `Runtime.evaluate` to paint
+some content, and `Page.captureScreenshot` it back — checked for a
+valid PNG signature and a non-trivial size, then written to
+`chromium-demo-screenshot.png` so a human can also just look at it.
+No mock could stand in for this part: a fake WebSocket peer can echo
+back *something* JSON-shaped for `captureScreenshot`, but "is this
+actually a PNG of actually-rendered content" is a question only an
+actual rendering engine can answer.
+
+This is also what found two real bugs `Tests.lean`'s mocks couldn't:
+
+1. `Discovery.fetchJson` originally read the HTTP response by waiting
+   for the peer to close the connection, which every mock server
+   obligingly does and a real Chromium does not -- its debugging HTTP
+   server keeps the connection alive regardless of the client's
+   `Connection: close` header, so the naive version hung forever on
+   the very first real request. Fixed by reading the body by
+   `Content-Length` instead (`LeanCDP.Transport.Buffered`, shared with
+   `WebSocket`, now backs both).
+2. CDP's `Page`/`Runtime` methods don't work on the raw browser-wide
+   connection at all -- they need a target attached in "flat" session
+   mode first, then every call tagged with that session's id. Missing
+   entirely until `Protocol.Client.callWith`/`callSession` and
+   `LeanCDP.Page` were added; there was no way the browser-level-only
+   mock test would ever have surfaced that gap.
 
 ## Using it for real
 
-See `ChromiumDemo.lean` above for a complete, runnable example --
-`Discovery.discoverBrowserWebSocket` to find the browser, then
-`Protocol.connect` and `Client.call` for however many CDP methods you
-need. Everything in `LeanCDP` runs in the `Async` monad; a plain
+```sh
+cd LeanCDP
+lake exe leancdp-screenshot <url> [outfile] [cdp-host] [cdp-port]
+# e.g.
+lake exe leancdp-screenshot http://127.0.0.1:8111/index.html shot.png
+```
+
+(`leancdp-screenshot`, see `Screenshot.lean`, needs a Chromium already
+listening the same way `leancdp-chromium-demo` does, above.) It's a
+thin wrapper over `LeanCDP.Page`: `Discovery.discoverBrowserWebSocket`
+to find the browser, `Protocol.connect`, `Page.openBlank`, `.navigate`,
+`.waitForLoad`, `.screenshot`, write the bytes, `.close`. See
+`ChromiumDemo.lean` for the same pieces used more thoroughly (plus
+`Runtime.evaluate`), and `LeanCDP/Page.lean` for what each step does.
+Everything in `LeanCDP` runs in the `Async` monad; a plain
 `IO`-returning `main` reaches it via `.block` (`(someAsyncAction).block
 : IO α`), same as every example in this repo does.
 
@@ -141,10 +170,11 @@ lake exe leancdp-probe <ipv4-host> <port> [path]
 - **`Protocol.Client` has no event/notification subscriber.** CDP
   events (`{"method","params"}` with no `id`) are parsed correctly by
   `Message.parse` but silently dropped by `Client.call`'s receive
-  loop — there's no way for a caller to be told about one. Fine for
-  request/response-style use (`Page.navigate` and waiting on its
-  result); not fine for anything that needs to react to, say,
-  `Network.responseReceived` as it happens.
+  loop — there's no way for a caller to be told about one.
+  `Page.Session.waitForLoad` works around exactly this by *polling*
+  `Runtime.evaluate "document.readyState"` instead of subscribing to
+  `Page.loadEventFired`; fine for that, not fine for anything that
+  needs to react to, say, `Network.responseReceived` as it happens.
 - **One request in flight at a time.** `Client.call` blocks until its
   own response arrives; there's no concurrent-call support.
 - **`Transport.connect` takes only numeric IPv4 literals**, no

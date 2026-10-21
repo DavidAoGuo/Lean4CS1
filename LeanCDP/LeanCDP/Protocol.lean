@@ -67,16 +67,30 @@ def connect (host : String) (port : UInt16) (path : String) : Async Client := do
   return ⟨ws, nextId⟩
 
 /--
-Call any CDP method and return its `result` payload, raw. Loops past
-events (silently dropped -- this client has no subscriber mechanism,
-see README) and past responses to any *other* in-flight call (there
-shouldn't be one, since this client only ever has one `call` in
-flight at a time, but a real server is free to interleave anyway).
-Throws on a CDP error response, or if the connection closes first.
+Call any CDP method and return its `result` payload, raw. `sessionId?`
+addresses the call to a specific target's session (CDP's "flat" mode,
+set up via `Target.attachToTarget {flatten: true}`) rather than the
+browser-wide connection -- needed for most of `Page`/`Runtime`/`DOM`,
+which operate on one target, not the whole browser. Request ids are
+unique across the *connection*, session-scoped or not, so correlating
+a response by `id` alone (see `loop` below) needs no session-awareness
+of its own.
+
+Loops past events (silently dropped -- this client has no subscriber
+mechanism, see README) and past responses to any *other* in-flight
+call (there shouldn't be one, since this client only ever has one
+`call` in flight at a time, but a real server is free to interleave
+anyway). Throws on a CDP error response, or if the connection closes
+first.
 -/
-partial def Client.call (c : Client) (method : String) (params : Json := Json.mkObj []) : Async Json := do
+partial def Client.callWith (c : Client) (sessionId? : Option String) (method : String)
+    (params : Json := Json.mkObj []) : Async Json := do
   let id ← c.nextId.modifyGet (fun n => (n, n + 1))
-  let request := Json.mkObj [("id", Json.num id), ("method", Json.str method), ("params", params)]
+  let fields := [("id", Json.num id), ("method", Json.str method), ("params", params)] ++
+    (match sessionId? with
+      | some sid => [("sessionId", Json.str sid)]
+      | none => [])
+  let request := Json.mkObj fields
   c.ws.sendText request.compress
   let rec loop : Async Json := do
     match ← c.ws.recvMessage with
@@ -93,6 +107,15 @@ partial def Client.call (c : Client) (method : String) (params : Json := Json.mk
           else loop
         | .ok (.event ..) => loop
   loop
+
+/-- Call a browser-wide CDP method (`Target`, `Browser`, ...) -- no session. -/
+def Client.call (c : Client) (method : String) (params : Json := Json.mkObj []) : Async Json :=
+  c.callWith none method params
+
+/-- Call a CDP method scoped to one target's session (see `callWith`). -/
+def Client.callSession (c : Client) (sessionId : String) (method : String)
+    (params : Json := Json.mkObj []) : Async Json :=
+  c.callWith (some sessionId) method params
 
 /-- Close the underlying WebSocket connection. -/
 def Client.close (c : Client) : Async Unit := c.ws.close
