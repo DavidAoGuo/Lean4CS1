@@ -37,6 +37,7 @@ theorem noContradiction {P : Prop} : ¬(P ∧ ¬P) :=
   let np : ¬P := pandnotp.right
   np p
 
+--## How to prove not P, prove by negation
 
 -- example { P : Prop } : ¬¬P → P :=
 --   fun nnp =>
@@ -106,6 +107,11 @@ em : ∀ (X : Prop), X ∨ ¬X
 #guard_msgs in
 example (P Q : Prop)  (em : ∀ (X : Prop), X ∨ ¬X) : ¬(P ∧ Q) → (¬P ∨ ¬Q) :=
   _
+
+-- ## Homework: finish this proof (my unfinished attempt from 9/21 class)
+-- example (P Q : Prop) (em : ∀ (X : Prop), X ∨ ¬X) : ¬(P ∧ Q) → (¬P ∨ ¬Q) :=
+--   fun notPandQ =>
+--     Or.inl (fun p => notPandQ (And.intro p _))
 
 /- @@@
 ### Proof by Negation and by Contradiction
