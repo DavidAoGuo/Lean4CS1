@@ -238,10 +238,7 @@ etc.
 #eval ktwo * (ktwo + ktwo)   -- eight!
 #eval ktwo +  ktwo * ktwo    -- six
 #eval ktwo + (ktwo * ktwo)   -- six
-```
 
-
-```lean
 def addAnyTypeAsLongItsAddable {α : Type} [Add α] : α → α → α
 | a, b => a + b
 
