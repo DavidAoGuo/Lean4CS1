@@ -143,6 +143,43 @@ def add : KNat → KNat → KNat                -- Addition function
   | a, KNat.zero   => a
   | a, KNat.succ b => inc (add a b)
 
+
+def sub : KNat → KNat → KNat
+| n, KNat.zero => n
+| n, KNat.succ m' => dec (sub n m')
+
+#eval sub kthree ktwo
+#eval sub ktwo kthree
+#eval sub kthree kthree
+
+
+def eq : KNat → KNat → Bool
+| KNat.zero, KNat.zero => true
+| KNat.succ n', KNat.succ m' => eq n' m'
+| _, _ => false
+
+#eval eq kthree kthree
+#eval eq kthree kone
+#eval eq kone kthree
+
+def le : KNat → KNat → Bool
+| (KNat.succ n'), (KNat.succ m') => le n' m'
+| KNat.succ _n', KNat.zero => false
+| KNat.zero, _  => true
+
+#eval le kthree kthree
+#eval le kthree kone
+#eval le kone kthree
+
+def gt : KNat → KNat → Bool :=
+  fun n m => !le n m
+
+def lt : KNat → KNat → Bool :=
+  fun n m => le n m && !(eq n m)
+
+def ge : KNat → KNat → Bool :=
+  fun n m => gt n m || eq n m   --!(lt n m)
+
 /- @@@
 Whereas addition is interated incrementing,
 multiplication is iterated addition. To get
@@ -201,36 +238,6 @@ def hyperop : Nat → KNat → KNat → KNat
 #eval toNat (hyperop 2 ktwo kthree)   -- 6
 #eval toNat (hyperop 3 ktwo kthree)   -- 8
 #eval toNat (hyperop 4 ktwo ktwo)     -- 4, same as tet ktwo ktwo
-
--- Truncated subtraction: same shape as add, stepping with dec instead of inc
-def sub : KNat → KNat → KNat
-| a, KNat.zero   => a
-| a, KNat.succ b => dec (sub a b)
-
-def eq : KNat → KNat → Bool
-| KNat.zero, KNat.zero => true
-| KNat.zero, _ => false
-| _, KNat.zero => false
-| KNat.succ n', KNat.succ m' => eq n' m'
-
-#eval eq kthree kthree
-#eval eq kthree kone
-
-def le : KNat → KNat → Bool
-| KNat.zero, _ => true
-| KNat.succ _n', KNat.zero => false
-| KNat.succ n', KNat.succ m' => le n' m'
-
-def gt : KNat → KNat → Bool :=
-  fun n m => !le n m
-
-def lt : KNat → KNat → Bool :=
-  fun n m => le n m && !(eq n m)
-
-
-def ge : KNat → KNat → Bool :=
-  fun n m => !(lt n m)
-
 
 -- Unary negation: naturals have no negatives, so negation truncates to zero,
 -- consistent with truncated subtraction.
@@ -300,12 +307,6 @@ etc.
 #eval toNat (-ktwo + kthree)         -- (-2) + 3 = 0 + 3 = 3 (unary minus first; truncated)
 #eval toNat (ktwo ^ kthree - kone)   -- (2 ^ 3) - 1 = 7      (^ before -)
 #eval toNat (kone - kthree)          -- 0                    (truncation)
-
-/- @@@
-
-@@@ -/
-
-
 def addAnyTypeAsLongItsAddable {α : Type} [Add α] : α → α → α
 | a, b => a + b
 
@@ -325,10 +326,11 @@ def addAnyTypeAsLongItsAddable {α : Type} [Add α] : α → α → α
 EXERCISES
 
 1. Extend KNat algebra with operations for
-unary Negation and Subtraction, and instances
-to provide notations and more. Use your search
-engine or agent to find the names of the right
-classes in Lean's libraries for these operations.
+unary Negation (haha) and Subtraction, and
+instances to provide notations and more. Use
+your search engine or agent to find the names
+of the right classes in Lean's libraries for
+these operations.
 
 2. Replace Nat with KNat in the following
 definition of the syntax and semantics of
