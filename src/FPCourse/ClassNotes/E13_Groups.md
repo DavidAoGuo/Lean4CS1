@@ -1,18 +1,20 @@
 # Groups: Monoids With Inverses
 
-## What Groups Are: Invertible Actions and Symmetries
+## What Groups Are: Symmetry-Preserving Actions
 
-Think of a group as the mathematical language of *symmetry*. When
-you rotate a square 90 degrees, you get back a square that looks
-the same. When you reflect a square across a vertical line, again,
-you get a square that looks the same. These operations leave the
-square unchanged -- they're *invariant*, meaning the square's
-essential structure survives them intact.
+Think of a group as the mathematical language of *symmetry-preserving
+actions*. When you rotate a square 90 degrees, you get back a square
+that looks the same -- the action preserves the square's essential
+structure, leaving it invariant. When you reflect a square across a
+vertical line, again, the square's shape is unchanged. These operations
+are *reversible*: if you rotate 90 degrees clockwise, you can rotate
+90 degrees counter-clockwise to undo it. If you reflect vertically,
+reflecting again gives you back the original.
 
-Groups capture this idea: they're sets of operations (like rotations
-and reflections) that can be undone. Every action in a group is
-reversible, which is why groups are the right abstraction for
-studying symmetry.
+Groups capture this idea: they're sets of actions that preserve a
+structure and can all be undone. Every action in a group is reversible,
+which is why groups are the right abstraction for studying the symmetries
+of any object -- geometric shapes, algebraic systems, physical laws.
 
 Last class we saw that a `Monoid` bundles an associative operator
 with an identity element. That's already powerful -- it lets you
@@ -37,10 +39,11 @@ of `a`, written `inv a`, and the `a`'s cancel, leaving
 
 ## A Glimpse at Classification: The Finite Simple Groups
 
-In 2023, mathematicians announced the formal verification (in the Lean
-proof assistant, coincidentally!) of the complete classification of
-all *finite simple groups* -- one of the greatest achievements of
-20th-century mathematics. This is worth understanding at a high level.
+In October 2026, mathematicians led by Harmonic announced the formal
+verification (in the Lean proof assistant, coincidentally!) of the
+complete classification of all *finite simple groups* -- one of the
+greatest achievements of 20th-century mathematics. This is worth
+understanding at a high level.
 
 A *finite* group is one with finitely many elements. For example,
 integers modulo N form a finite group (it has exactly N elements).
