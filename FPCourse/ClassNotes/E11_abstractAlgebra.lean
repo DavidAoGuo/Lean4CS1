@@ -1,3 +1,24 @@
+namespace My
+inductive Option (α : Type u) where
+  | none : Option α
+  | some (val : α) : Option α
+deriving Repr
+
+-- 用法：取列表第一个元素，空列表返回 none
+def safeHead : List α → Option α
+  | []     => .none
+  | h :: _ => .some h
+
+-- 用法：取出值，没有值就用默认值 d
+def getD : Option α → α → α
+  | .none,   d => d
+  | .some v, _ => v
+
+#eval safeHead [5, 6, 7]                -- My.Option.some 5
+#eval safeHead ([] : List Nat)          -- My.Option.none
+#eval getD (safeHead ([] : List Nat)) 0 -- 0
+end My
+
 /- @@@
 # Map, Reduce, and the Algebra That Makes Reduce Safe
 
@@ -49,8 +70,44 @@ def productNat : List Nat → Nat
 | List.cons h t  => h * productNat t
 
 #eval productNat [2, 3, 4]   -- 24
+-- cons 2 (cons 3 (cons 4 nil))
 #eval productNat [5]         -- 5
 #eval productNat []          -- 1
+
+inductive MyList (α : Type) : Type where
+| nil
+| cons (h : α) (t : List α)
+
+-- Option
+def head {α : Type} : MyList α → Option α
+| MyList.nil => Option.none
+| MyList.cons h t => Option.some h
+
+def head' {α : Type} : List α → Option α
+| [] => none
+| h::t => some h
+
+def myfold {α : Type} (f : α → α → α)(id : α) : List α → α
+| [] => id
+| h::t => f h (myfold f id t)
+
+#eval myfold Nat.add 0 []
+#eval myfold Nat.add 0 [1]
+#eval myfold Nat.add 0 [5,4,3,2,1]
+
+#eval myfold Nat.mul 1 []
+#eval myfold Nat.mul 1 [1]
+#eval myfold Nat.mul 1 [5,4,3,2,1]
+
+def myfold2
+{α : Type}
+(f : α → α → α)
+(f_assor: ∀ (a b c : α), f (f a b) c = f a (f b c))
+(id : α)
+(fid : ∀ a, f id a = a ∧ f a id = a)
+: List α → α
+| [] => id
+| h::t => f h (myfold f id t)
 
 /- @@@
 Look closely at that `List.nil` case: `1`. Why `1`, and not,
@@ -428,3 +485,10 @@ def totalLength (strs : List String) : Nat :=
 @@@ -/
 
 end AbstractAlgebra
+
+
+def myMap {α β: Type}(f : α → β) : List α → List β
+| [] => []
+| h::t => (f h)::(myMap f t)
+
+#eval myMap (fun n => n*n) [1,2,3,4,5]

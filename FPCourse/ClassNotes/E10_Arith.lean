@@ -207,6 +207,31 @@ def sub : KNat → KNat → KNat
 | a, KNat.zero   => a
 | a, KNat.succ b => dec (sub a b)
 
+def eq : KNat → KNat → Bool
+| KNat.zero, KNat.zero => true
+| KNat.zero, _ => false
+| _, KNat.zero => false
+| KNat.succ n', KNat.succ m' => eq n' m'
+
+#eval eq kthree kthree
+#eval eq kthree kone
+
+def le : KNat → KNat → Bool
+| KNat.zero, _ => true
+| KNat.succ _n', KNat.zero => false
+| KNat.succ n', KNat.succ m' => le n' m'
+
+def gt : KNat → KNat → Bool :=
+  fun n m => !le n m
+
+def lt : KNat → KNat → Bool :=
+  fun n m => le n m && !(eq n m)
+
+
+def ge : KNat → KNat → Bool :=
+  fun n m => !(lt n m)
+
+
 -- Unary negation: naturals have no negatives, so negation truncates to zero,
 -- consistent with truncated subtraction.
 def neg : KNat → KNat
