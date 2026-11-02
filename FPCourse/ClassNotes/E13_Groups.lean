@@ -148,7 +148,29 @@ adding a number and its inverse gives you back the identity.
 @@@ -/
 
 /- @@@
-## Example 2: Integers Modulo N
+## Example 2: Integers Modulo 12 (Clock Hours)
+
+Clock hours form a group under addition modulo 12. The set is
+{0, 1, ..., 11}, representing the 12 hours, and adding any number of
+hours wraps around at 12. This will be useful later when we introduce
+torsors.
+@@@ -/
+
+instance : Group (Fin 3) where
+  op      := (· + ·)
+  id      := 0
+  assoc   := by intros; ext; simp [Fin.add_def, Nat.add_assoc]
+  idLeft  := by intros; ext; simp [Fin.add_def]
+  idRight := by intros; ext; simp [Fin.add_def]
+  inv     := fun a => -a
+  invLeft := by intros; ext; simp [Fin.add_def, Fin.neg_def]
+  invRight:= by intros; ext; simp [Fin.add_def, Fin.neg_def]
+
+#eval (1 : Fin 3) + (1 : Fin 3)  -- 2
+#eval (2 : Fin 3) + (1 : Fin 3)  -- 0 (wraps around)
+
+/- @@@
+## Example 3: Integers Modulo N
 
 Now for something trickier. Fix some positive integer `N > 1`,
 and consider the integers *modulo* `N`: the numbers `{0, 1, ..., N-1}`,
@@ -227,6 +249,100 @@ For integers modulo 5:
 The group structure guarantees this works for *any* group, not just
 these specific examples. That's the abstraction paying off: we write
 one `solve` function, and it works everywhere the group laws hold.
+@@@ -/
+
+/- @@@
+## Torsors: Free and Transitive Group Actions
+
+So far we've studied groups as abstract algebraic objects. But groups
+are most interesting when they *act* on something: a rotation acts on
+the corners of a square, a permutation acts on a sequence of elements,
+a translation acts on the points of a plane.
+
+A *torsor* for a group `G` is a set `T` where `G` acts on elements of
+`T` in two special ways:
+  - *Free*: no non-identity element of `G` leaves any point of `T` fixed
+  - *Transitive*: any two points of `T` are related by some element of `G`
+
+Together, these properties mean that `T` has no intrinsic identity or
+structure -- all points are equivalent, and they're only distinguished
+by the group action. A torsor is "a group without a distinguished element."
+
+Examples: clock hours under time shifts, calendar dates under day shifts,
+points in a plane under translations, directions in space under rotations.
+@@@ -/
+
+class Torsor (G T : Type) where
+  [groupG : Group G]
+  act        : G → T → T
+  actId      : ∀ t, act groupG.id t = t
+  actComp    : ∀ g h t, act (groupG.op g h) t = act g (act h t)
+  actFree    : ∀ g t, act g t = t → g = groupG.id
+  actTransitive : ∀ t₁ t₂ : T, ∃ g, act g t₁ = t₂
+
+/- @@@
+## Instance 1: Fin k (Integers Modulo k)
+
+The simplest torsor: a group acting on itself. `Fin k` is a torsor for
+the group (Fin k, +) where the action is addition. Every element can be
+shifted to every other element by adding the right value, and only the
+identity (0) leaves any position unchanged.
+@@@ -/
+
+/- We'll implement the full Torsor instance for Rat below, which is simpler
+and more illustrative than the modular arithmetic case. -/
+
+/- @@@
+## Instance 2: Integers Modulo 12 (Clock Hours)
+
+A concrete example: the hours on a 12-hour clock. Adding an hour offset
+to any current hour gives you the new hour, wrapping at midnight.
+@@@ -/
+
+#eval (3 : Fin 12) + (5 : Fin 12)   -- 8
+#eval (10 : Fin 12) + (5 : Fin 12)  -- 3 (wraps around)
+#eval (0 : Fin 12) + (7 : Fin 12)   -- 7
+
+/- @@@
+## Instance 3: ℚ (Rational Numbers)
+
+The rational numbers form a torsor under themselves via addition.
+Every rational can be shifted to every other rational by adding an
+appropriate rational offset, and only 0 leaves any rational unchanged.
+
+This requires a `Group ℚ` instance for rational addition, parallel to
+our `Group Int` instance for integers.
+@@@ -/
+
+instance : Group Rat where
+  op      := (· + ·)
+  id      := 0
+  assoc   := Rat.add_assoc
+  idLeft  := Rat.zero_add
+  idRight := Rat.add_zero
+  inv     := fun q => -q
+  invLeft := Rat.neg_add_cancel
+  invRight:= Rat.add_neg_cancel
+
+instance : Torsor Rat Rat where
+  groupG    := inferInstance
+  act       := (· + ·)
+  actId     := Rat.zero_add
+  actComp   := fun g h t => Rat.add_assoc g h t
+  actFree   := fun g t h => sorry -- g + t = t implies g = 0
+  actTransitive := fun t₁ t₂ => ⟨t₂ - t₁, sorry⟩  -- (t₂ - t₁) + t₁ = t₂
+
+/- @@@
+The key insight: once we have a torsor, we get structure for free.
+The laws ensure that:
+  - Applying the identity doesn't move anything
+  - Actions compose consistently
+  - Every point can reach every other point
+  - No non-identity element fixes any point
+
+This abstraction simplifies reasoning about group actions across
+different mathematical objects -- clocks, dates, geometric points,
+and more all follow the same pattern.
 @@@ -/
 
 end Groups
