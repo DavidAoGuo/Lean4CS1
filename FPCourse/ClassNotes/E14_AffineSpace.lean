@@ -66,9 +66,9 @@ class Group (α : Type) where
   invLeft : ∀ a, op (inv a) a = id
   invRight: ∀ a, op a (inv a) = id
 
-instance [Group α] : Add α where add := Group.op
-instance [Group α] : Neg α where neg := Group.inv
-instance [Group α] : Zero α where zero := Group.id
+instance {α : Type} [Group α] : Add α where add := Group.op
+instance {α : Type} [Group α] : Neg α where neg := Group.inv
+instance {α : Type} [Group α] : Zero α where zero := Group.id
 
 /- @@@
 ## `AffineSpace`: A Torsor Structure
