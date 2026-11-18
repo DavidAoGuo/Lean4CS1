@@ -57,4 +57,4 @@ def myMap {α β: Type} (f : α → β)  :  List α → List β
 -- transformd by *f* in the corresponding output positions
 -- Now we can just cut to the chase.
 
--- HERE (-> moved into E12_GeneralizedFold.lean, toward the end)
+-- HERE (-> moved into E10_GeneralizedFold.lean, toward the end)

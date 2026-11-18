@@ -1,7 +1,7 @@
 /- @@@
 # Affine Space ℚ² Demo: Type-Safe Geometry
 
-This demo uses the AffineSpace typeclass from E14_AffineSpace to work with
+This demo uses the AffineSpace typeclass from E13_AffineSpace to work with
 the rational plane (ℚ²). The key insight: **points and vectors are kept
 distinct by the type system**.
 
@@ -18,7 +18,7 @@ the right. `p +ᵥ v` is not merely unconventional, it does not typecheck --
 This is what affine spaces are for: geometry without a chosen origin.
 @@@ -/
 
-import FPCourse.ClassNotes.E14_AffineSpace
+import FPCourse.ClassNotes.E13_AffineSpace
 import Mathlib.Tactic.Ring
 
 namespace AffineSpace2DDemo
@@ -113,12 +113,13 @@ def vec_12 : Vector := point2 -ᵥ point1
    This is `vsubAdd`, which we proved, so it holds for every pair of points. -/
 #eval vec_12 +ᵥ point1          -- { x := 2, y := 3 }, i.e. point2
 
-/- In a *statement* we spell out `AffineSpace.vadd` instead of using `+ᵥ`.
-   Both this file's `+ᵥ` and mathlib's are in scope, and with no expected type
-   to disambiguate them Lean reports the term as ambiguous. See the note in
-   E14 on why reusing mathlib's `VAdd` would be the real fix. -/
+/- The `-ᵥ` here needs its result type spelled out. In `vsub : P → P → V` the
+   vector type `V` appears only in the result, so the two point arguments do
+   not determine it, and this file's `-ᵥ` and mathlib's are both in scope. In
+   a `def` the declared type settles it; in a nested position like this one it
+   does not, so we annotate. See the note in E14 on the same wrinkle. -/
 
-example : AffineSpace.vadd (AffineSpace.vsub point2 point1 : Vector) point1 = point2 :=
+example : (point2 -ᵥ point1 : Vector) +ᵥ point1 = point2 :=
   AffineSpace.vsubAdd point1 point2
 
 /- @@@

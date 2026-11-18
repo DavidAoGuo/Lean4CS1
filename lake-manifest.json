@@ -11,6 +11,13 @@
    "inputRev": "v4.33.0",
    "inherited": false,
    "configFile": "lakefile.lean"},
+  {"type": "path",
+   "scope": "",
+   "name": "graphfold",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "GraphFold",
+   "configFile": "lakefile.toml"},
   {"url": "https://github.com/leanprover-community/plausible",
    "type": "git",
    "subDir": null,
@@ -93,4 +100,4 @@
    "configFile": "lakefile.toml"}],
  "name": "«fp-course»",
  "lakeDir": ".lake",
- "fixedToolchain": false}
+ "fixedToolchain": true}

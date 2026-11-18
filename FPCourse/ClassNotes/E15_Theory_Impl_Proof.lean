@@ -15,7 +15,8 @@ This lesson demonstrates a fundamental pattern in mathematics and software:
    - No specific types; works over arbitrary type parameters
 
 2. **Implementation Layer**: Concrete instances
-   - Three implementations using ℚ, ℚ², ℚ³
+   - Three implementations, over ℚ, ℚ² and ℚ³, each giving points and vectors
+     their own distinct types
    - Each satisfies the abstract theory
 
 3. **Proof Bridge**: Theorems showing each implementation satisfies the theory
@@ -71,8 +72,9 @@ class AffineSpaceTheory (V : Type) (P : Type) where
 class VAdd (V : Type) (P : Type) where vadd : V → P → P
 class VSub (P : Type) (V : Type) where vsub : P → P → V
 
-instance [AffineSpaceTheory V P] : VAdd V P where vadd := AffineSpaceTheory.vadd
-instance [AffineSpaceTheory V P] : VSub P V where vsub := AffineSpaceTheory.vsub
+instance {V P}[AffineSpaceTheory V P] : VAdd V P where vadd := AffineSpaceTheory.vadd
+instance {V P} [AffineSpaceTheory V P] : VAdd V P where vadd := AffineSpaceTheory.vadd
+instance {V P} [AffineSpaceTheory V P] : VSub P V where vsub := AffineSpaceTheory.vsub
 
 -- Both at precedence 65, matching mathlib. `-ᵥ` must bind tighter than `=`
 -- (precedence 50), or a goal like `q -ᵥ p = v` fails to parse.
@@ -150,15 +152,58 @@ instance [Mul F] [One F] [VectorSpaceTheory F V] : SMul F V where
   smul := VectorSpaceTheory.smul
 
 /- @@@
+### Two Cancellation Facts
+
+Proved once for any group, so that two of the four affine laws become single
+terms at every dimension below. Each is a `calc` chain naming the axiom it
+uses at each step: associativity, then an inverse law, then an identity law.
+@@@ -/
+
+theorem op_inv_op_cancel {α : Type} [Group α] (a b : α) :
+    Group.op (Group.op a (Group.inv b)) b = a :=
+  calc Group.op (Group.op a (Group.inv b)) b
+      = Group.op a (Group.op (Group.inv b) b) := Group.assoc a (Group.inv b) b
+    _ = Group.op a Group.id                   := congrArg (Group.op a) (Group.invLeft b)
+    _ = a                                     := Group.idRight a
+
+theorem op_op_inv_cancel {α : Type} [Group α] (a b : α) :
+    Group.op (Group.op a b) (Group.inv b) = a :=
+  calc Group.op (Group.op a b) (Group.inv b)
+      = Group.op a (Group.op b (Group.inv b)) := Group.assoc a b (Group.inv b)
+    _ = Group.op a Group.id                   := congrArg (Group.op a) (Group.invRight b)
+    _ = a                                     := Group.idRight a
+
+/- @@@
 ## Implementation Layer: Three Concrete Instances
 
 Each implementation provides both an AffineSpaceTheory and VectorSpaceTheory instance.
+
+### Points and Vectors Get Their Own Types
+
+One decision shapes every instance below. The theory layer takes *two* type
+parameters, `AffineSpaceTheory V P`, and we honour that separation in the
+implementations: at each dimension there is a `PointN` type and a `VectorN`
+type, and they are different types even though each is implemented as the
+same tuple of rationals.
+
+Instantiating both parameters with one type -- `AffineSpaceTheory (ℚ × ℚ)
+(ℚ × ℚ)` -- satisfies the axioms, but it lets you add two points, an
+operation with no geometric meaning. Declaring a `structure` with a single
+field costs a few lines and makes that a type error instead. The torsors and
+affine space lessons introduced the same device; here it recurs at three
+dimensions, which is why the names carry the dimension.
+
+The scalars stay bare `Rat`. They are not a geometric carrier, and ℚ needs to
+remain ℚ for `VectorSpaceTheory`'s `Mul` and `One` constraints to be the
+familiar ones.
 @@@ -/
 
 /- @@@
 ### Implementation 1: ℚ (1-Dimensional)
 
-Both the affine space and vector space of rational numbers.
+The rational line. First the group of scalars, which is both the scalar
+structure `groupF` for every vector space below and the representation that
+the 1-dimensional point and vector types wrap.
 @@@ -/
 
 instance : Group Rat where
@@ -171,98 +216,217 @@ instance : Group Rat where
   invLeft : ∀ a : Rat, (-a) + a = 0 := Rat.neg_add_cancel
   invRight: ∀ a : Rat, a + (-a) = 0 := Rat.add_neg_cancel
 
-instance : AffineSpaceTheory Rat Rat where
-  groupV  := inferInstance
-  vadd    : Rat → Rat → Rat := (· + ·)
-  vsub    : Rat → Rat → Rat := (· - ·)
-  vaddAssoc : ∀ v w : Rat, ∀ p : Rat, v + (w + p) = (v + w) + p :=
-    fun v w p => (Rat.add_assoc v w p).symm
-  vaddZero : ∀ p : Rat, 0 + p = p := Rat.zero_add
-  vsubAdd : ∀ p q : Rat, (q - p) + p = q := fun p q => by norm_num
-  addVsub : ∀ v : Rat, ∀ p : Rat, (v + p) - p = v := fun v p => by norm_num
+structure Vector1 where
+  ofScalar ::
+  toScalar : Rat
+deriving DecidableEq
 
-instance : VectorSpaceTheory Rat Rat where
-  groupF  := inferInstance
-  groupV  := inferInstance
-  smul    : Rat → Rat → Rat := (· * ·)
-  oneSmul := fun v => by show (1 : Rat) * v = v; ring
-  mulSmul := fun a b v => by show (a * b) * v = a * (b * v); ring
-  smulAdd := fun a v w => by show a * (v + w) = a * v + a * w; ring
-  addSmul := fun a b v => by show (a + b) * v = a * v + b * v; ring
+structure Point1 where
+  ofScalar ::
+  toScalar : Rat
+deriving DecidableEq
+
+instance : Repr Vector1 where reprPrec v _ := "Vector1 " ++ repr v.toScalar
+instance : Repr Point1  where reprPrec p _ := "Point1 "  ++ repr p.toScalar
+
+/- @@@
+`Vector1` becomes a group by *transporting* the instance above across the
+wrapper: unwrap, defer to ℚ, wrap the result. Each law follows from the
+corresponding law on ℚ by `congrArg`, which lifts an equation on scalars to an
+equation on `Vector1`. No arithmetic is redone.
+@@@ -/
+
+instance : Group Vector1 where
+  op v w      := ⟨Group.op v.toScalar w.toScalar⟩
+  id          := ⟨Group.id⟩
+  inv v       := ⟨Group.inv v.toScalar⟩
+  assoc a b c := congrArg Vector1.ofScalar (Group.assoc a.toScalar b.toScalar c.toScalar)
+  idLeft a    := congrArg Vector1.ofScalar (Group.idLeft a.toScalar)
+  idRight a   := congrArg Vector1.ofScalar (Group.idRight a.toScalar)
+  invLeft a   := congrArg Vector1.ofScalar (Group.invLeft a.toScalar)
+  invRight a  := congrArg Vector1.ofScalar (Group.invRight a.toScalar)
+
+/- @@@
+The affine space. `vsub` is "compose with the inverse": the displacement from
+`p` to `q` is `q` combined with the undoing of `p`. For ℚ that computes the
+ordinary difference, and stating it group-theoretically makes `vsubAdd` and
+`addVsub` one rewrite each.
+@@@ -/
+
+instance : AffineSpaceTheory Vector1 Point1 where
+  groupV   := inferInstance
+  vadd v p := ⟨Group.op v.toScalar p.toScalar⟩
+  vsub q p := ⟨Group.op q.toScalar (Group.inv p.toScalar)⟩
+  vaddAssoc v w p :=
+    congrArg Point1.ofScalar (Group.assoc v.toScalar w.toScalar p.toScalar).symm
+  vaddZero p := congrArg Point1.ofScalar (Group.idLeft p.toScalar)
+  vsubAdd p q := congrArg Point1.ofScalar (op_inv_op_cancel q.toScalar p.toScalar)
+  addVsub v p := congrArg Vector1.ofScalar (op_op_inv_cancel v.toScalar p.toScalar)
+
+/- @@@
+And the vector space: scaling a 1-dimensional vector is multiplying its single
+coordinate. Each axiom is then one library fact about rational multiplication,
+lifted through the constructor by `congrArg` exactly as the group laws were:
+`one_mul`, `mul_assoc`, `mul_add` and `add_mul` in turn. No axiom is restated
+and no arithmetic is redone.
+@@@ -/
+
+instance : VectorSpaceTheory Rat Vector1 where
+  groupF    := inferInstance
+  groupV    := inferInstance
+  smul a v  := ⟨a * v.toScalar⟩
+  oneSmul v     := congrArg Vector1.ofScalar (one_mul v.toScalar)
+  mulSmul a b v := congrArg Vector1.ofScalar (mul_assoc a b v.toScalar)
+  smulAdd a v w := congrArg Vector1.ofScalar (mul_add a v.toScalar w.toScalar)
+  addSmul a b v := congrArg Vector1.ofScalar (add_mul a b v.toScalar)
 
 /- @@@
 ### Implementation 2: ℚ × ℚ (2-Dimensional)
 
-Both the affine space and vector space of the rational plane.
+The rational plane. Same three instances, same shape of proof; the only change
+is that the representation is a pair, so the group of the representation does
+its arithmetic componentwise.
 @@@ -/
 
 instance : Group (Rat × Rat) where
   op      : Rat × Rat → Rat × Rat → Rat × Rat := fun (a, b) (c, d) => (a + c, b + d)
   id      : Rat × Rat := (0, 0)
-  assoc   : ∀ a b c : Rat × Rat, ((a.1 + b.1) + c.1, (a.2 + b.2) + c.2) = (a.1 + (b.1 + c.1), a.2 + (b.2 + c.2)) := fun _ _ _ => by ext <;> simp [Rat.add_assoc]
-  idLeft  : ∀ a : Rat × Rat, (0 + a.1, 0 + a.2) = a := fun _ => by simp
-  idRight : ∀ a : Rat × Rat, (a.1 + 0, a.2 + 0) = a := fun _ => by simp
+  assoc   : ∀ a b c : Rat × Rat, ((a.1 + b.1) + c.1, (a.2 + b.2) + c.2) = (a.1 + (b.1 + c.1), a.2 + (b.2 + c.2)) :=
+    fun a b c => Prod.ext (Rat.add_assoc a.1 b.1 c.1) (Rat.add_assoc a.2 b.2 c.2)
+  idLeft  : ∀ a : Rat × Rat, (0 + a.1, 0 + a.2) = a :=
+    fun a => Prod.ext (Rat.zero_add a.1) (Rat.zero_add a.2)
+  idRight : ∀ a : Rat × Rat, (a.1 + 0, a.2 + 0) = a :=
+    fun a => Prod.ext (Rat.add_zero a.1) (Rat.add_zero a.2)
   inv     : Rat × Rat → Rat × Rat := fun (a, b) => (-a, -b)
-  invLeft : ∀ a : Rat × Rat, (-a.1 + a.1, -a.2 + a.2) = (0, 0) := fun _ => by
-    ext <;> simp
-  invRight: ∀ a : Rat × Rat, (a.1 + (-a.1), a.2 + (-a.2)) = (0, 0) := fun _ => by
-    ext <;> simp
+  invLeft : ∀ a : Rat × Rat, (-a.1 + a.1, -a.2 + a.2) = (0, 0) :=
+    fun a => Prod.ext (Rat.neg_add_cancel a.1) (Rat.neg_add_cancel a.2)
+  invRight: ∀ a : Rat × Rat, (a.1 + (-a.1), a.2 + (-a.2)) = (0, 0) :=
+    fun a => Prod.ext (Rat.add_neg_cancel a.1) (Rat.add_neg_cancel a.2)
 
-instance : AffineSpaceTheory (Rat × Rat) (Rat × Rat) where
-  groupV  := inferInstance
-  vadd    : Rat × Rat → Rat × Rat → Rat × Rat := fun (v₁, v₂) (p₁, p₂) => (v₁ + p₁, v₂ + p₂)
-  vsub    : Rat × Rat → Rat × Rat → Rat × Rat := fun (q₁, q₂) (p₁, p₂) => (q₁ - p₁, q₂ - p₂)
-  vaddAssoc := fun (v₁, v₂) (w₁, w₂) (p₁, p₂) => by
-    ext <;> simp [Group.op, Rat.add_assoc]
-  vaddZero := fun (p₁, p₂) => by ext <;> simp [Group.id]
-  vsubAdd := fun (p₁, p₂) (q₁, q₂) => by ext <;> simp
-  addVsub := fun (v₁, v₂) (p₁, p₂) => by ext <;> simp
+structure Vector2 where
+  ofPair ::
+  toPair : Rat × Rat
+deriving DecidableEq
 
-instance : VectorSpaceTheory Rat (Rat × Rat) where
-  groupF  := inferInstance
-  groupV  := inferInstance
-  smul    : Rat → Rat × Rat → Rat × Rat := fun a (v₁, v₂) => (a * v₁, a * v₂)
-  oneSmul := fun (v₁, v₂) => by ext <;> simp
-  mulSmul := fun a b (v₁, v₂) => by ext <;> simp [mul_assoc]
-  smulAdd := fun a (v₁, v₂) (w₁, w₂) => by ext <;> simp [Group.op, mul_add]
-  addSmul := fun a b (v₁, v₂) => by ext <;> simp [Group.op, add_mul]
+structure Point2 where
+  ofPair ::
+  toPair : Rat × Rat
+deriving DecidableEq
+
+instance : Repr Vector2 where reprPrec v _ := "Vector2 " ++ repr v.toPair
+instance : Repr Point2  where reprPrec p _ := "Point2 "  ++ repr p.toPair
+
+instance : Group Vector2 where
+  op v w      := ⟨Group.op v.toPair w.toPair⟩
+  id          := ⟨Group.id⟩
+  inv v       := ⟨Group.inv v.toPair⟩
+  assoc a b c := congrArg Vector2.ofPair (Group.assoc a.toPair b.toPair c.toPair)
+  idLeft a    := congrArg Vector2.ofPair (Group.idLeft a.toPair)
+  idRight a   := congrArg Vector2.ofPair (Group.idRight a.toPair)
+  invLeft a   := congrArg Vector2.ofPair (Group.invLeft a.toPair)
+  invRight a  := congrArg Vector2.ofPair (Group.invRight a.toPair)
+
+instance : AffineSpaceTheory Vector2 Point2 where
+  groupV   := inferInstance
+  vadd v p := ⟨Group.op v.toPair p.toPair⟩
+  vsub q p := ⟨Group.op q.toPair (Group.inv p.toPair)⟩
+  vaddAssoc v w p :=
+    congrArg Point2.ofPair (Group.assoc v.toPair w.toPair p.toPair).symm
+  vaddZero p := congrArg Point2.ofPair (Group.idLeft p.toPair)
+  vsubAdd p q := congrArg Point2.ofPair (op_inv_op_cancel q.toPair p.toPair)
+  addVsub v p := congrArg Vector2.ofPair (op_op_inv_cancel v.toPair p.toPair)
+
+instance : VectorSpaceTheory Rat Vector2 where
+  groupF   := inferInstance
+  groupV   := inferInstance
+  smul a v := ⟨(a * v.toPair.1, a * v.toPair.2)⟩
+  oneSmul v := congrArg Vector2.ofPair
+    (Prod.ext (one_mul v.toPair.1) (one_mul v.toPair.2))
+  mulSmul a b v := congrArg Vector2.ofPair
+    (Prod.ext (mul_assoc a b v.toPair.1) (mul_assoc a b v.toPair.2))
+  smulAdd a v w := congrArg Vector2.ofPair
+    (Prod.ext (mul_add a v.toPair.1 w.toPair.1) (mul_add a v.toPair.2 w.toPair.2))
+  addSmul a b v := congrArg Vector2.ofPair
+    (Prod.ext (add_mul a b v.toPair.1) (add_mul a b v.toPair.2))
 
 /- @@@
 ### Implementation 3: ℚ × ℚ × ℚ (3-Dimensional)
 
-Both the affine space and vector space of 3D rational space.
+Three dimensions, no new ideas -- which is the point of showing it. Note that
+`Vector2` and `Vector3` are distinct types, so mixing dimensions is a type
+error and not a silently wrong computation.
 @@@ -/
 
 instance : Group (Rat × Rat × Rat) where
   op      : Rat × Rat × Rat → Rat × Rat × Rat → Rat × Rat × Rat := fun (a, b, c) (d, e, f) => (a + d, b + e, c + f)
   id      : Rat × Rat × Rat := (0, 0, 0)
-  assoc   : ∀ a b c : Rat × Rat × Rat, ((a.1 + b.1) + c.1, (a.2.1 + b.2.1) + c.2.1, (a.2.2 + b.2.2) + c.2.2) = (a.1 + (b.1 + c.1), a.2.1 + (b.2.1 + c.2.1), a.2.2 + (b.2.2 + c.2.2)) := fun _ _ _ => by ext <;> simp [Rat.add_assoc]
-  idLeft  : ∀ a : Rat × Rat × Rat, (0 + a.1, 0 + a.2.1, 0 + a.2.2) = a := fun _ => by simp
-  idRight : ∀ a : Rat × Rat × Rat, (a.1 + 0, a.2.1 + 0, a.2.2 + 0) = a := fun _ => by simp
+  assoc   : ∀ a b c : Rat × Rat × Rat, ((a.1 + b.1) + c.1, (a.2.1 + b.2.1) + c.2.1, (a.2.2 + b.2.2) + c.2.2) = (a.1 + (b.1 + c.1), a.2.1 + (b.2.1 + c.2.1), a.2.2 + (b.2.2 + c.2.2)) :=
+    fun a b c => Prod.ext (Rat.add_assoc a.1 b.1 c.1)
+      (Prod.ext (Rat.add_assoc a.2.1 b.2.1 c.2.1) (Rat.add_assoc a.2.2 b.2.2 c.2.2))
+  idLeft  : ∀ a : Rat × Rat × Rat, (0 + a.1, 0 + a.2.1, 0 + a.2.2) = a :=
+    fun a => Prod.ext (Rat.zero_add a.1)
+      (Prod.ext (Rat.zero_add a.2.1) (Rat.zero_add a.2.2))
+  idRight : ∀ a : Rat × Rat × Rat, (a.1 + 0, a.2.1 + 0, a.2.2 + 0) = a :=
+    fun a => Prod.ext (Rat.add_zero a.1)
+      (Prod.ext (Rat.add_zero a.2.1) (Rat.add_zero a.2.2))
   inv     : Rat × Rat × Rat → Rat × Rat × Rat := fun (a, b, c) => (-a, -b, -c)
-  invLeft : ∀ a : Rat × Rat × Rat, (-a.1 + a.1, -a.2.1 + a.2.1, -a.2.2 + a.2.2) = (0, 0, 0) := fun _ => by
-    ext <;> simp
-  invRight: ∀ a : Rat × Rat × Rat, (a.1 + (-a.1), a.2.1 + (-a.2.1), a.2.2 + (-a.2.2)) = (0, 0, 0) := fun _ => by
-    ext <;> simp
+  invLeft : ∀ a : Rat × Rat × Rat, (-a.1 + a.1, -a.2.1 + a.2.1, -a.2.2 + a.2.2) = (0, 0, 0) :=
+    fun a => Prod.ext (Rat.neg_add_cancel a.1)
+      (Prod.ext (Rat.neg_add_cancel a.2.1) (Rat.neg_add_cancel a.2.2))
+  invRight: ∀ a : Rat × Rat × Rat, (a.1 + (-a.1), a.2.1 + (-a.2.1), a.2.2 + (-a.2.2)) = (0, 0, 0) :=
+    fun a => Prod.ext (Rat.add_neg_cancel a.1)
+      (Prod.ext (Rat.add_neg_cancel a.2.1) (Rat.add_neg_cancel a.2.2))
 
-instance : AffineSpaceTheory (Rat × Rat × Rat) (Rat × Rat × Rat) where
-  groupV  := inferInstance
-  vadd    : Rat × Rat × Rat → Rat × Rat × Rat → Rat × Rat × Rat := fun (v₁, v₂, v₃) (p₁, p₂, p₃) => (v₁ + p₁, v₂ + p₂, v₃ + p₃)
-  vsub    : Rat × Rat × Rat → Rat × Rat × Rat → Rat × Rat × Rat := fun (q₁, q₂, q₃) (p₁, p₂, p₃) => (q₁ - p₁, q₂ - p₂, q₃ - p₃)
-  vaddAssoc := fun (v₁, v₂, v₃) (w₁, w₂, w₃) (p₁, p₂, p₃) => by
-    ext <;> simp [Group.op, Rat.add_assoc]
-  vaddZero := fun (p₁, p₂, p₃) => by ext <;> simp [Group.id]
-  vsubAdd := fun (p₁, p₂, p₃) (q₁, q₂, q₃) => by ext <;> simp
-  addVsub := fun (v₁, v₂, v₃) (p₁, p₂, p₃) => by ext <;> simp
+structure Vector3 where
+  ofTriple ::
+  toTriple : Rat × Rat × Rat
+deriving DecidableEq
 
-instance : VectorSpaceTheory Rat (Rat × Rat × Rat) where
-  groupF  := inferInstance
-  groupV  := inferInstance
-  smul    : Rat → Rat × Rat × Rat → Rat × Rat × Rat := fun a (v₁, v₂, v₃) => (a * v₁, a * v₂, a * v₃)
-  oneSmul := fun (v₁, v₂, v₃) => by ext <;> simp
-  mulSmul := fun a b (v₁, v₂, v₃) => by ext <;> simp [mul_assoc]
-  smulAdd := fun a (v₁, v₂, v₃) (w₁, w₂, w₃) => by ext <;> simp [Group.op, mul_add]
-  addSmul := fun a b (v₁, v₂, v₃) => by ext <;> simp [Group.op, add_mul]
+structure Point3 where
+  ofTriple ::
+  toTriple : Rat × Rat × Rat
+deriving DecidableEq
+
+instance : Repr Vector3 where reprPrec v _ := "Vector3 " ++ repr v.toTriple
+instance : Repr Point3  where reprPrec p _ := "Point3 "  ++ repr p.toTriple
+
+instance : Group Vector3 where
+  op v w      := ⟨Group.op v.toTriple w.toTriple⟩
+  id          := ⟨Group.id⟩
+  inv v       := ⟨Group.inv v.toTriple⟩
+  assoc a b c := congrArg Vector3.ofTriple (Group.assoc a.toTriple b.toTriple c.toTriple)
+  idLeft a    := congrArg Vector3.ofTriple (Group.idLeft a.toTriple)
+  idRight a   := congrArg Vector3.ofTriple (Group.idRight a.toTriple)
+  invLeft a   := congrArg Vector3.ofTriple (Group.invLeft a.toTriple)
+  invRight a  := congrArg Vector3.ofTriple (Group.invRight a.toTriple)
+
+instance : AffineSpaceTheory Vector3 Point3 where
+  groupV   := inferInstance
+  vadd v p := ⟨Group.op v.toTriple p.toTriple⟩
+  vsub q p := ⟨Group.op q.toTriple (Group.inv p.toTriple)⟩
+  vaddAssoc v w p :=
+    congrArg Point3.ofTriple (Group.assoc v.toTriple w.toTriple p.toTriple).symm
+  vaddZero p := congrArg Point3.ofTriple (Group.idLeft p.toTriple)
+  vsubAdd p q := congrArg Point3.ofTriple (op_inv_op_cancel q.toTriple p.toTriple)
+  addVsub v p := congrArg Vector3.ofTriple (op_op_inv_cancel v.toTriple p.toTriple)
+
+instance : VectorSpaceTheory Rat Vector3 where
+  groupF   := inferInstance
+  groupV   := inferInstance
+  smul a v := ⟨(a * v.toTriple.1, a * v.toTriple.2.1, a * v.toTriple.2.2)⟩
+  oneSmul v := congrArg Vector3.ofTriple
+    (Prod.ext (one_mul v.toTriple.1)
+      (Prod.ext (one_mul v.toTriple.2.1) (one_mul v.toTriple.2.2)))
+  mulSmul a b v := congrArg Vector3.ofTriple
+    (Prod.ext (mul_assoc a b v.toTriple.1)
+      (Prod.ext (mul_assoc a b v.toTriple.2.1) (mul_assoc a b v.toTriple.2.2)))
+  smulAdd a v w := congrArg Vector3.ofTriple
+    (Prod.ext (mul_add a v.toTriple.1 w.toTriple.1)
+      (Prod.ext (mul_add a v.toTriple.2.1 w.toTriple.2.1)
+        (mul_add a v.toTriple.2.2 w.toTriple.2.2)))
+  addSmul a b v := congrArg Vector3.ofTriple
+    (Prod.ext (add_mul a b v.toTriple.1)
+      (Prod.ext (add_mul a b v.toTriple.2.1) (add_mul a b v.toTriple.2.2)))
 
 /- @@@
 ## Proof Bridge Layer: Theorems About the Abstract Theory
@@ -294,16 +458,21 @@ is the whole claim of the theory layer.
 @@@ -/
 
 theorem affine_transitivity {V P : Type} [aff : AffineSpaceTheory V P] (p q r : P) :
-    aff.groupV.op (aff.vsub r q) (aff.vsub q p) = aff.vsub r p := by
-  -- Translating p by the composed displacement lands on r:
-  --   (r-q) ∘ (q-p) applied to p  =  (r-q) applied to ((q-p) applied to p)  =  (r-q) applied to q  =  r
-  have h : aff.vadd (aff.groupV.op (aff.vsub r q) (aff.vsub q p)) p = r := by
-    rw [← aff.vaddAssoc, aff.vsubAdd, aff.vsubAdd]
-  -- and `addVsub` says the displacement that lands on r from p is unique.
+    aff.groupV.op (aff.vsub r q) (aff.vsub q p) = aff.vsub r p :=
   calc aff.groupV.op (aff.vsub r q) (aff.vsub q p)
+      -- `addVsub` says a displacement is recovered by applying it and
+      -- differencing back, so rewrite the left side into that shape.
       = aff.vsub (aff.vadd (aff.groupV.op (aff.vsub r q) (aff.vsub q p)) p) p :=
         (aff.addVsub _ _).symm
-    _ = aff.vsub r p := by rw [h]
+      -- Split the composed translation into two translations.
+    _ = aff.vsub (aff.vadd (aff.vsub r q) (aff.vadd (aff.vsub q p) p)) p :=
+        congrArg (fun x => aff.vsub x p) (aff.vaddAssoc _ _ _).symm
+      -- The inner one carries p to q ...
+    _ = aff.vsub (aff.vadd (aff.vsub r q) q) p :=
+        congrArg (fun x => aff.vsub (aff.vadd (aff.vsub r q) x) p) (aff.vsubAdd p q)
+      -- ... and the outer one carries q to r.
+    _ = aff.vsub r p :=
+        congrArg (fun x => aff.vsub x p) (aff.vsubAdd q r)
 
 /- @@@
 ### General Theorems About Vector Spaces
@@ -318,16 +487,22 @@ them, so we prove them once rather than twice.
 @@@ -/
 
 theorem Group.eq_id_of_idem {α : Type} (g : Group α) {a : α}
-    (h : g.op a a = a) : a = g.id := by
+    (h : g.op a a = a) : a = g.id :=
   -- An idempotent element of a group is the identity: cancel one copy of `a`.
-  have h' := congrArg (g.op (g.inv a)) h
-  rwa [← g.assoc, g.invLeft, g.idLeft] at h'
+  calc a = g.op g.id a             := (g.idLeft a).symm
+    _ = g.op (g.op (g.inv a) a) a  := congrArg (fun x => g.op x a) (g.invLeft a).symm
+    _ = g.op (g.inv a) (g.op a a)  := g.assoc (g.inv a) a a
+    _ = g.op (g.inv a) a           := congrArg (g.op (g.inv a)) h
+    _ = g.id                       := g.invLeft a
 
 theorem Group.inv_eq_of_op_eq_id {α : Type} (g : Group α) {a b : α}
-    (h : g.op a b = g.id) : b = g.inv a := by
+    (h : g.op a b = g.id) : b = g.inv a :=
   -- Inverses in a group are unique.
-  have h' := congrArg (g.op (g.inv a)) h
-  rwa [← g.assoc, g.invLeft, g.idLeft, g.idRight] at h'
+  calc b = g.op g.id b             := (g.idLeft b).symm
+    _ = g.op (g.op (g.inv a) a) b  := congrArg (fun x => g.op x b) (g.invLeft a).symm
+    _ = g.op (g.inv a) (g.op a b)  := g.assoc (g.inv a) a b
+    _ = g.op (g.inv a) g.id        := congrArg (g.op (g.inv a)) h
+    _ = g.inv a                    := g.idRight (g.inv a)
 
 /- @@@
 Now the vector space theorems. Note that `0 • v = 0` and `a • 0 = 0` are
@@ -339,14 +514,22 @@ so `0 • v` equals its own double and must therefore be the zero vector.
 @@@ -/
 
 theorem vector_zero_scalar {F V : Type} [Mul F] [One F] [vs : VectorSpaceTheory F V]
-    (v : V) : vs.smul vs.groupF.id v = vs.groupV.id := by
-  apply Group.eq_id_of_idem vs.groupV
-  rw [← vs.addSmul, vs.groupF.idLeft]
+    (v : V) : vs.smul vs.groupF.id v = vs.groupV.id :=
+  Group.eq_id_of_idem vs.groupV
+    (calc vs.groupV.op (vs.smul vs.groupF.id v) (vs.smul vs.groupF.id v)
+        = vs.smul (vs.groupF.op vs.groupF.id vs.groupF.id) v :=
+            (vs.addSmul vs.groupF.id vs.groupF.id v).symm
+      _ = vs.smul vs.groupF.id v :=
+            congrArg (fun x => vs.smul x v) (vs.groupF.idLeft vs.groupF.id))
 
 theorem vector_scalar_zero {F V : Type} [Mul F] [One F] [vs : VectorSpaceTheory F V]
-    (a : F) : vs.smul a vs.groupV.id = vs.groupV.id := by
-  apply Group.eq_id_of_idem vs.groupV
-  rw [← vs.smulAdd, vs.groupV.idLeft]
+    (a : F) : vs.smul a vs.groupV.id = vs.groupV.id :=
+  Group.eq_id_of_idem vs.groupV
+    (calc vs.groupV.op (vs.smul a vs.groupV.id) (vs.smul a vs.groupV.id)
+        = vs.smul a (vs.groupV.op vs.groupV.id vs.groupV.id) :=
+            (vs.smulAdd a vs.groupV.id vs.groupV.id).symm
+      _ = vs.smul a vs.groupV.id :=
+            congrArg (vs.smul a) (vs.groupV.idLeft vs.groupV.id))
 
 /- @@@
 And scaling a negated vector negates the result, because `a • v` and
@@ -355,10 +538,13 @@ And scaling a negated vector negates the result, because `a • v` and
 
 theorem vector_neg_scalar {F V : Type} [Mul F] [One F] [vs : VectorSpaceTheory F V]
     (a : F) (v : V) :
-    vs.smul a (vs.groupV.inv v) = vs.groupV.inv (vs.smul a v) := by
-  apply Group.inv_eq_of_op_eq_id vs.groupV
-  rw [← vs.smulAdd, vs.groupV.invRight]
-  exact vector_scalar_zero a
+    vs.smul a (vs.groupV.inv v) = vs.groupV.inv (vs.smul a v) :=
+  Group.inv_eq_of_op_eq_id vs.groupV
+    (calc vs.groupV.op (vs.smul a v) (vs.smul a (vs.groupV.inv v))
+        = vs.smul a (vs.groupV.op v (vs.groupV.inv v)) :=
+            (vs.smulAdd a v (vs.groupV.inv v)).symm
+      _ = vs.smul a vs.groupV.id := congrArg (vs.smul a) (vs.groupV.invRight v)
+      _ = vs.groupV.id           := vector_scalar_zero a)
 
 /- @@@
 ## Summary: The Theory-Implementation-Proof Pattern
@@ -369,7 +555,10 @@ theorem vector_neg_scalar {F V : Type} [Mul F] [One F] [vs : VectorSpaceTheory F
   (a vector space when `F` is a field)
 
 **Implementation Layer**: Concrete types satisfy the theory.
-- Rat, Rat × Rat, Rat × Rat × Rat are implementations
+- `Point1`/`Vector1`, `Point2`/`Vector2` and `Point3`/`Vector3` are the
+  implementations, over ℚ, ℚ × ℚ and ℚ × ℚ × ℚ respectively
+- Points and vectors are distinct types at each dimension, so adding two
+  points is a type error rather than a meaningless value
 - Proofs that they satisfy the abstract axioms
 
 **Proof Bridge Layer**: Generic theorems about the theory apply to all implementations.
@@ -400,50 +589,66 @@ name of the generic theorem. That is the payoff the whole lesson is about.
    only in that field's *result*, so Lean cannot infer it from `p` and `q`
    alone. It is a hint to instance search, not an extra assumption. -/
 
-example (p q : Rat) :
-    AffineSpaceTheory.vadd (AffineSpaceTheory.vsub q p : Rat) p = q :=
+example (p q : Point1) :
+    AffineSpaceTheory.vadd (AffineSpaceTheory.vsub q p : Vector1) p = q :=
   affine_translation_inversion p q
 
-example (p q : Rat × Rat) :
-    AffineSpaceTheory.vadd (AffineSpaceTheory.vsub q p : Rat × Rat) p = q :=
+example (p q : Point2) :
+    AffineSpaceTheory.vadd (AffineSpaceTheory.vsub q p : Vector2) p = q :=
   affine_translation_inversion p q
 
-example (p q : Rat × Rat × Rat) :
-    AffineSpaceTheory.vadd (AffineSpaceTheory.vsub q p : Rat × Rat × Rat) p = q :=
+example (p q : Point3) :
+    AffineSpaceTheory.vadd (AffineSpaceTheory.vsub q p : Vector3) p = q :=
   affine_translation_inversion p q
 
 /- The composition law, likewise proven once and reused at each dimension. -/
 
-example (p q r : Rat) :
-    Group.op (AffineSpaceTheory.vsub r q : Rat) (AffineSpaceTheory.vsub q p : Rat)
-      = (AffineSpaceTheory.vsub r p : Rat) :=
+example (p q r : Point1) :
+    Group.op (AffineSpaceTheory.vsub r q : Vector1) (AffineSpaceTheory.vsub q p : Vector1)
+      = (AffineSpaceTheory.vsub r p : Vector1) :=
   affine_transitivity p q r
 
-example (p q r : Rat × Rat) :
-    Group.op (AffineSpaceTheory.vsub r q : Rat × Rat) (AffineSpaceTheory.vsub q p : Rat × Rat)
-      = (AffineSpaceTheory.vsub r p : Rat × Rat) :=
+example (p q r : Point2) :
+    Group.op (AffineSpaceTheory.vsub r q : Vector2) (AffineSpaceTheory.vsub q p : Vector2)
+      = (AffineSpaceTheory.vsub r p : Vector2) :=
   affine_transitivity p q r
 
-example (p q r : Rat × Rat × Rat) :
-    Group.op (AffineSpaceTheory.vsub r q : Rat × Rat × Rat)
-             (AffineSpaceTheory.vsub q p : Rat × Rat × Rat)
-      = (AffineSpaceTheory.vsub r p : Rat × Rat × Rat) :=
+example (p q r : Point3) :
+    Group.op (AffineSpaceTheory.vsub r q : Vector3)
+             (AffineSpaceTheory.vsub q p : Vector3)
+      = (AffineSpaceTheory.vsub r p : Vector3) :=
   affine_transitivity p q r
 
 /- @@@
 And because the axioms are now proven rather than assumed, the instances are
-computable: the operations actually run.
+computable: the operations actually run. The printed type on each result says
+which role the value plays -- a displacement or a location.
 @@@ -/
 
-#eval (AffineSpaceTheory.vsub ((7 : Rat), (9 : Rat)) ((2 : Rat), (3 : Rat)) : Rat × Rat)
-      -- (5, 6): the displacement from (2,3) to (7,9)
+#eval (AffineSpaceTheory.vsub (Point2.ofPair (7, 9)) (Point2.ofPair (2, 3)) : Vector2)
+      -- Vector2 (5, 6): the displacement from (2,3) to (7,9)
 
-#eval (AffineSpaceTheory.vadd ((5 : Rat), (6 : Rat)) ((2 : Rat), (3 : Rat)) : Rat × Rat)
-      -- (7, 9): applying that displacement to (2,3) returns to (7,9)
+#eval (AffineSpaceTheory.vadd (Vector2.ofPair (5, 6)) (Point2.ofPair (2, 3)) : Point2)
+      -- Point2 (7, 9): applying that displacement to (2,3) returns to (7,9)
 
-#eval (AffineSpaceTheory.vsub ((1 : Rat), (2 : Rat), (3 : Rat)) ((1 : Rat), (1 : Rat), (1 : Rat))
-       : Rat × Rat × Rat)
-      -- (0, 1, 2)
+#eval (AffineSpaceTheory.vsub (Point3.ofTriple (1, 2, 3)) (Point3.ofTriple (1, 1, 1))
+       : Vector3)
+      -- Vector3 (0, 1, 2)
+
+/- @@@
+And what the types rule out. Each of these is rejected:
+
+  `Group.op (Point2.ofPair (1, 1)) (Point2.ofPair (2, 2))`
+      -- no `Group Point2` instance: points do not add
+  `AffineSpaceTheory.vadd (Point2.ofPair (1, 1)) (Point2.ofPair (2, 2))`
+      -- `vadd` takes a vector first, and a point is not a vector
+  `AffineSpaceTheory.vadd (Vector2.ofPair (1, 1)) (Point3.ofTriple (2, 2, 2))`
+      -- no instance relates 2D vectors to 3D points: dimensions cannot mix
+
+Lean reports each as a failure to synthesize the instance that would be needed
+for the expression to mean anything -- which is the type checker saying,
+correctly, that there is no such operation.
+@@@ -/
 
 /- @@@
 ## The Same Pattern on the Vector Space Side
@@ -452,33 +657,33 @@ computable: the operations actually run.
 proven once over an arbitrary `VectorSpaceTheory F V`. Here they are at all
 three dimensions -- again with no proof, only the theorem's name.
 
-Recall that `Group.id` *is* the zero: it is `0` for ℚ, `(0, 0)` for ℚ², and
-`(0, 0, 0)` for ℚ³.
+Recall that `Group.id` *is* the zero: the scalar `0` in ℚ, and the wrapped
+zero tuple in `Vector1`, `Vector2` and `Vector3`.
 @@@ -/
 
 /- `0 • v = 0`, for every vector in every one of the three spaces. -/
 
-example (v : Rat) :
-    VectorSpaceTheory.smul (Group.id : Rat) v = (Group.id : Rat) :=
+example (v : Vector1) :
+    VectorSpaceTheory.smul (Group.id : Rat) v = (Group.id : Vector1) :=
   vector_zero_scalar v
 
-example (v : Rat × Rat) :
-    VectorSpaceTheory.smul (Group.id : Rat) v = (Group.id : Rat × Rat) :=
+example (v : Vector2) :
+    VectorSpaceTheory.smul (Group.id : Rat) v = (Group.id : Vector2) :=
   vector_zero_scalar v
 
-example (v : Rat × Rat × Rat) :
-    VectorSpaceTheory.smul (Group.id : Rat) v = (Group.id : Rat × Rat × Rat) :=
+example (v : Vector3) :
+    VectorSpaceTheory.smul (Group.id : Rat) v = (Group.id : Vector3) :=
   vector_zero_scalar v
 
 /- `a • 0 = 0`, for every scalar. -/
 
 example (a : Rat) :
-    VectorSpaceTheory.smul a (Group.id : Rat × Rat) = (Group.id : Rat × Rat) :=
+    VectorSpaceTheory.smul a (Group.id : Vector2) = (Group.id : Vector2) :=
   vector_scalar_zero a
 
 /- `a • (-v) = -(a • v)`. -/
 
-example (a : Rat) (v : Rat × Rat) :
+example (a : Rat) (v : Vector2) :
     VectorSpaceTheory.smul a (Group.inv v) = Group.inv (VectorSpaceTheory.smul a v) :=
   vector_neg_scalar a v
 
@@ -486,13 +691,13 @@ example (a : Rat) (v : Rat × Rat) :
 And the scalar multiplications compute, too.
 @@@ -/
 
-#eval (VectorSpaceTheory.smul (2 : Rat) ((3 : Rat), (4 : Rat)) : Rat × Rat)
-      -- (6, 8)
-#eval (VectorSpaceTheory.smul (0 : Rat) ((3 : Rat), (4 : Rat)) : Rat × Rat)
-      -- (0, 0), as vector_zero_scalar guarantees
-#eval (VectorSpaceTheory.smul (1 : Rat) ((3 : Rat), (4 : Rat)) : Rat × Rat)
-      -- (3, 4), as the oneSmul axiom requires
-#eval (VectorSpaceTheory.smul (1/2 : Rat) ((1 : Rat), (2 : Rat), (3 : Rat)) : Rat × Rat × Rat)
-      -- (1/2, 1, 3/2)
+#eval (VectorSpaceTheory.smul (2 : Rat) (Vector2.ofPair (3, 4)) : Vector2)
+      -- Vector2 (6, 8)
+#eval (VectorSpaceTheory.smul (0 : Rat) (Vector2.ofPair (3, 4)) : Vector2)
+      -- Vector2 (0, 0), as vector_zero_scalar guarantees
+#eval (VectorSpaceTheory.smul (1 : Rat) (Vector2.ofPair (3, 4)) : Vector2)
+      -- Vector2 (3, 4), as the oneSmul axiom requires
+#eval (VectorSpaceTheory.smul (1/2 : Rat) (Vector3.ofTriple (1, 2, 3)) : Vector3)
+      -- Vector3 ((1 : Rat)/2, 1, (3 : Rat)/2)
 
 end TheoryImplProof
