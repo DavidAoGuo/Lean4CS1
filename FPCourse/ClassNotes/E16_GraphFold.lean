@@ -9,6 +9,27 @@ same graph fold can answer whether a vertex is reachable, how many paths reach
 it, or what the cheapest path costs. We will also inspect the theorem that
 connects each of GraphFold's implementations to the recurrence.
 
+**This lecture carries two lessons, and the second is the bigger one.**
+Nominally it is about an algebra-parameterized graph fold: pick a different
+algebra, usually a semiring, and the same recursion becomes a different graph
+algorithm. That is the first half, and it is worth knowing on its own.
+
+The second lesson is that **verification is not all you need.** Lean checks
+that a proof establishes the proposition you wrote down. It cannot tell you
+whether that proposition says what you meant. Verification asks *did I build
+the thing right?* Validation asks *did I build the right thing?* Only the
+first of those is mechanized here.
+
+GraphFold is a live specimen of the gap. Every proof compiles, no `sorry`
+appears in the library or its tests, the tests pass, and the GUI rejects cyclic
+input. Yet the three soundness theorems printed later in this lecture restate
+the very recurrence the implementations compute, rather than defining shortest
+distance independently and proving the output equals it. Acyclicity, the
+precondition the whole method rests on, is enforced by the file parser and
+appears as a hypothesis in none of those theorems. So read the theorem
+statements here as carefully as you would read the code, and keep asking what
+they do *not* say.
+
 ## Fold over incoming edges
 
 GraphFold stores each vertex as a `Row` with a base contribution and a list of
@@ -52,7 +73,7 @@ open GraphFold
 #print specStep
 
 /-! @@@
-## The same semirings in databases and graphs
+## The same two operations in databases and graphs
 
 Recall our in-class example of parameterizing positive relational algebra
 over a commutative semiring. A tuple carries an annotation. A join multiplies
@@ -72,10 +93,10 @@ $$
 (R ; S)(a,c) = \sum_b \bigl(R(a,b) \otimes S(b,c)\bigr)
 $$
 
-If two matches use input tuples tagged `p` and `q` for one match and `r`
-and `s` for the other, provenance records `p * q + r * s`. Setting each
-annotation to `true` in the Boolean semiring gives `true`. Setting each
-to `1` in the natural-number semiring gives `2`.
+Suppose one match joins input tuples tagged `p` and `q`, and a second match
+joins tuples tagged `r` and `s`. Provenance then records `p * q + r * s`.
+Setting every annotation to `true` in the Boolean semiring gives `true`.
+Setting every annotation to `1` in the natural-number semiring gives `2`.
 
 The graph fold uses the same two operations for the same reasons. It
 multiplies to extend a path along an edge and adds to combine alternative

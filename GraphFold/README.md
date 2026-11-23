@@ -1,8 +1,6 @@
 # Graph Folds and *Validation* Faults in Verified Code
 
-TLDR: verification ≠ validation. Lean 4 nails one. You need both.
-A small case study of a *seemingly* good formalization verified by
-the Lean 4 kernel.
+TLDR: verification ≠ validation and verification is not all you need. Lean 4 handles verification. You need both. This lecture presents a small case study of a *seemingly* but not actually correct formalization of a semiring-parameterized graph fold algorithm.
 
 ## Verification is *Not* All You Need
 
